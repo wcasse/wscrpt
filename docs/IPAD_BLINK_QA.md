@@ -2,6 +2,24 @@
 
 This matrix is the human release gate for the exact remote route. Host tests, Unix PTYs, and tmux automation are prerequisites, not substitutes for feel or key-delivery approval.
 
+## Agent vs human split
+
+Most of the busywork can be done by an agent or script on the host. Only the **real Blink → mosh/ssh → tmux → wscrpt** feel/key-delivery pass requires you on the iPad.
+
+| Who | What |
+| --- | --- |
+| **Agent / host script** | Build/install binary identity; fill host fields of the route record; create the disposable Git fixture; snapshot hashes/`git status`; map which matrix rows are already covered by `scripts/verify.sh` / CI; draft the short human checklist |
+| **Human on iPad** | Delayed Escape, typing latency, reconnect, clipboard attempt, shell handoff feel, clean exit — the short list in `HUMAN_PASS.md` after prep |
+
+**Fast path (~15–25 min human):**
+
+```sh
+scripts/ipad-matrix-prep.sh
+# open the printed HUMAN_PASS.md on the iPad session and walk that table only
+```
+
+The full matrix below remains the authoritative long form when something fails or for a major release.
+
 ## Route record
 
 Complete every field before testing:

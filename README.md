@@ -142,7 +142,8 @@ Save as `~/.config/wscrpt/config.toml`. Language servers are never enabled by me
 - Host gate: [scripts/verify.sh](scripts/verify.sh) (fmt, clippy `-D warnings`, tests, package, isolated install).
 - CI: stable macOS/Linux + Rust 1.88 MSRV ([.github/workflows/verify.yml](.github/workflows/verify.yml)).
 - Human gate: [docs/IPAD_BLINK_QA.md](docs/IPAD_BLINK_QA.md) on  
-  `iPad + Magic Keyboard → Blink → mosh → tmux → host`.
+  `iPad + Magic Keyboard → Blink → mosh → tmux → host`.  
+  Host prep (agent-friendly): `scripts/ipad-matrix-prep.sh` → short `HUMAN_PASS.md`.
 
 Architecture and packaging rules: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/RELEASING.md](docs/RELEASING.md).  
 Contributing / security: [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md).
