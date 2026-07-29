@@ -10,6 +10,8 @@ Thanks for helping. wscrpt is intentionally small: a remote-first terminal edito
 
 ## Development
 
+**Code map:** [docs/CONTRIBUTOR_MAP.md](docs/CONTRIBUTOR_MAP.md) — where to edit keybindings, save, search, tasks, Git, LSP, render, session, recovery, and CLI without reading all of `src/app.rs`.
+
 Rust **1.88+** is required.
 
 ```sh

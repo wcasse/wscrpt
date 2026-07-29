@@ -10,8 +10,10 @@ Not blocked on the iPad matrix. Use this while the hardware pass waits.
 - [x] CI: stable macOS + Linux + MSRV 1.88
 - [x] Tag `v0.2.0` (move only with intentional retag after fixes)
 - [x] CONTRIBUTING / SECURITY / issue templates
+- [x] Contributor map (`docs/CONTRIBUTOR_MAP.md`)
 - [x] Host verify gate (`scripts/verify.sh`)
 - [x] Agent-friendly iPad prep (`scripts/ipad-matrix-prep.sh`)
+- [x] Release notes draft (`docs/releases/v0.2.0.md`)
 
 ## Guaranteed improvements (no iPad required)
 
