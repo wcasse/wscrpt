@@ -29,11 +29,11 @@ jobs:
           WSCRPT_REQUIRE_TMUX: ${{ runner.os == 'Linux' && '1' || '0' }}
 
   msrv:
-    name: Rust 1.85
+    name: Rust 1.88
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.85.0
+      - uses: dtolnay/rust-toolchain@1.88.0
         with:
           components: clippy,rustfmt
       - name: Install tmux

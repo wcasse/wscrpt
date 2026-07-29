@@ -872,7 +872,7 @@ pub fn file_uri_to_path(uri: &str) -> Result<PathBuf, String> {
                 .ok_or_else(|| "truncated percent escape in file URI".to_owned())?;
             bytes.push(
                 hex(high)
-                    .and_then(|high| hex(low).map(|low| high << 4 | low))
+                    .and_then(|high| hex(low).map(|low| (high << 4) | low))
                     .ok_or_else(|| "invalid percent escape in file URI".to_owned())?,
             );
             index += 3;

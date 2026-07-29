@@ -534,7 +534,7 @@ impl HighlightStateIndex {
             state = advance_line_from_rope(path, rope, index, state);
         }
         self.lines_indexed = target;
-        if self.lines_indexed < line_count && self.lines_indexed % Self::STRIDE == 0 {
+        if self.lines_indexed < line_count && self.lines_indexed.is_multiple_of(Self::STRIDE) {
             let sample_slot = self.lines_indexed / Self::STRIDE;
             if self.samples.len() <= sample_slot {
                 self.samples.resize(sample_slot + 1, HighlightState::Normal);

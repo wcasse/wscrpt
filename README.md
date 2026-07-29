@@ -30,7 +30,7 @@ Version **0.2** is a deliberate core: editing, workspace navigation/search, trus
 
 ## Install
 
-Rust **1.85** or newer.
+Rust **1.88** or newer.
 
 From a source checkout:
 
@@ -140,7 +140,7 @@ Save as `~/.config/wscrpt/config.toml`. Language servers are never enabled by me
 ## Proof and release
 
 - Host gate: [scripts/verify.sh](scripts/verify.sh) (fmt, clippy `-D warnings`, tests, package, isolated install).
-- CI: stable macOS/Linux + Rust 1.85 MSRV ([.github/workflows/ci.yml](.github/workflows/ci.yml)).
+- CI: stable macOS/Linux + Rust 1.88 MSRV ([.github/workflows/verify.yml](.github/workflows/verify.yml)).
 - Human gate: [docs/IPAD_BLINK_QA.md](docs/IPAD_BLINK_QA.md) on  
   `iPad + Magic Keyboard → Blink → mosh → tmux → host`.
 

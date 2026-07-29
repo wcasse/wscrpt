@@ -10,7 +10,7 @@ Thanks for helping. wscrpt is intentionally small: a remote-first terminal edito
 
 ## Development
 
-Rust **1.85+** is required.
+Rust **1.88+** is required.
 
 ```sh
 cargo fmt --all

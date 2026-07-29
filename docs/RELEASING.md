@@ -17,7 +17,7 @@ wscrpt --print-default-config
 wscrpt --print-command-reference
 ```
 
-Linux CI sets `WSCRPT_REQUIRE_TMUX=1`. With that setting, a missing tmux executable or unusable isolated tmux server is a failure, not a skipped success. Stable Rust runs on Linux and macOS; Rust 1.85 is the MSRV job.
+Linux CI sets `WSCRPT_REQUIRE_TMUX=1`. With that setting, a missing tmux executable or unusable isolated tmux server is a failure, not a skipped success. Stable Rust runs on Linux and macOS; Rust 1.88 is the MSRV job.
 
 Regenerate the committed command reference after changing the command registry:
 
