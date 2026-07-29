@@ -1,5 +1,9 @@
 # wscrpt
 
+[![CI](https://github.com/wcasse/wscrpt/actions/workflows/verify.yml/badge.svg)](https://github.com/wcasse/wscrpt/actions/workflows/verify.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![MSRV](https://img.shields.io/badge/MSRV-1.88-informational)](Cargo.toml)
+
 **Remote-first terminal IDE for real development hosts** — especially iPad + Magic Keyboard sessions over Blink, SSH, or mosh.
 
 Ordinary typing stays ordinary. `Esc` (or `Ctrl-K`) opens a **no-timeout** action layer that does not depend on Command-key chords or permanent panel clutter. Mouse reporting is **off by default** so Blink can keep native touch selection.
@@ -30,16 +34,25 @@ Version **0.2** is a deliberate core: editing, workspace navigation/search, trus
 
 ## Install
 
-Rust **1.88** or newer.
+Rust **1.88** or newer. Unix-like host (macOS/Linux).
 
-From a source checkout:
+**From GitHub (recommended until crates.io):**
 
 ```sh
+cargo install --git https://github.com/wcasse/wscrpt --tag v0.2.0 --locked
+wscrpt --health
+```
+
+**From a local checkout:**
+
+```sh
+git clone https://github.com/wcasse/wscrpt.git
+cd wscrpt
 cargo install --path . --locked
 wscrpt --health
 ```
 
-Once published to crates.io:
+**From crates.io** (when published):
 
 ```sh
 cargo install wscrpt --locked
@@ -59,9 +72,9 @@ cargo run --release -- .
 On the **host** (once):
 
 ```sh
-cargo install --path /path/to/wscrpt --locked
+cargo install --git https://github.com/wcasse/wscrpt --tag v0.2.0 --locked
 # optional: put a sample task file in each project
-mkdir -p .wscrpt && cp examples/tasks.toml .wscrpt/tasks.toml
+mkdir -p .wscrpt && cp /path/to/wscrpt/examples/tasks.toml .wscrpt/tasks.toml
 ```
 
 On the **iPad**:

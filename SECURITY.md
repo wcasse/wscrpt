@@ -22,7 +22,13 @@ Opening an untrusted repository should not auto-start untrusted language servers
 
 Please **do not** open a public issue for exploitable vulnerabilities.
 
-Email or private channel preferred (set by the maintainer once the public repository is live). Include:
+**Preferred:** GitHub private security advisories for this repo:
+
+https://github.com/wcasse/wscrpt/security/advisories/new
+
+If you cannot use that form, email the maintainer listed in `Cargo.toml` / git history with a clear subject like `wscrpt security`.
+
+Include:
 
 - wscrpt version (`wscrpt --version`)
 - host OS/arch
@@ -30,7 +36,7 @@ Email or private channel preferred (set by the maintainer once the public reposi
 - minimal reproduction steps
 - impact (data loss, code execution, terminal escape, etc.)
 
-You should receive an acknowledgment when the public project is staffed for review.
+You should receive an acknowledgment when the report is reviewed.
 
 ## Hardening tips for operators
 
