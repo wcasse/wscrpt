@@ -104,6 +104,10 @@ wscrpt src/main.rs --project .
 
 The first frame does **not** wait for indexing, Git status, or recovery scanning. Use `Esc w R` after external filesystem changes.
 
+**First run:** help opens once (Esc to dismiss). Reopen anytime with `Esc h`. Footer shows LSP status when a server is authorized or discovered on PATH.
+
+**LSP daily path:** `wscrpt --health` → `wscrpt --print-default-config` (includes PATH discoveries) → uncomment servers in `~/.config/wscrpt/config.toml` → restart. Then `Esc c c` complete, `Esc c h` hover, `Esc c f` format, `Esc c p` problems. Optional `format_on_save = true` formats via LSP before each Save.
+
 ## Essential controls
 
 Press and release `Esc`, then type a sequence. Prefixes wait indefinitely. `Ctrl-G` cancels; `Ctrl-L` redraws.

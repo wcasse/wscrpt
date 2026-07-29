@@ -115,16 +115,40 @@ pub fn discover_language_servers() -> Vec<DiscoveredLanguageServer> {
     found
 }
 
+/// Default argv vector for a well-known server (stdio / start flags included).
+pub fn default_argv_for(argv0: &str) -> Vec<String> {
+    match argv0 {
+        "typescript-language-server" => {
+            vec!["typescript-language-server".into(), "--stdio".into()]
+        }
+        "pyright-langserver" => vec!["pyright-langserver".into(), "--stdio".into()],
+        "bash-language-server" => vec!["bash-language-server".into(), "start".into()],
+        other => vec![other.to_owned()],
+    }
+}
+
+fn argv_toml(argv0: &str) -> String {
+    format!(
+        "[{}]",
+        default_argv_for(argv0)
+            .iter()
+            .map(|part| format!("\"{part}\""))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
 /// Format TOML snippets the operator can paste into the global config.
 pub fn suggested_config_snippets(servers: &[DiscoveredLanguageServer]) -> String {
     if servers.is_empty() {
         return "# No well-known language servers found on PATH.\n".to_owned();
     }
-    let mut text =
-        String::from("# Discovered on PATH (not auto-enabled). Uncomment to authorize:\n");
+    let mut text = String::from(
+        "# Discovered on PATH (not auto-enabled). Uncomment to authorize in this file:\n",
+    );
     for server in servers {
         text.push_str(&format!(
-            "# [[language_servers]]\n# name = \"{}\"\n# extensions = [{}]\n# language_id = \"{}\"\n# argv = [\"{}\"]\n",
+            "# [[language_servers]]\n# name = \"{}\"\n# extensions = [{}]\n# language_id = \"{}\"\n# argv = {}\n\n",
             server.name,
             server
                 .extensions
@@ -133,20 +157,21 @@ pub fn suggested_config_snippets(servers: &[DiscoveredLanguageServer]) -> String
                 .collect::<Vec<_>>()
                 .join(", "),
             server.language_id,
-            server.argv0
+            argv_toml(server.argv0)
         ));
-        if server.argv0 == "typescript-language-server" {
-            text.push_str("# # argv = [\"typescript-language-server\", \"--stdio\"]\n");
-        }
-        if server.argv0 == "pyright-langserver" {
-            text.push_str("# # argv = [\"pyright-langserver\", \"--stdio\"]\n");
-        }
-        if server.argv0 == "bash-language-server" {
-            text.push_str("# # argv = [\"bash-language-server\", \"start\"]\n");
-        }
-        text.push('\n');
     }
     text
+}
+
+/// Best PATH-discovered candidate for a path extension, if any.
+pub fn discovered_for_path(path: &Path) -> Option<DiscoveredLanguageServer> {
+    let extension = path.extension()?.to_str()?.to_ascii_lowercase();
+    discover_language_servers().into_iter().find(|server| {
+        server
+            .extensions
+            .iter()
+            .any(|candidate| candidate.eq_ignore_ascii_case(&extension))
+    })
 }
 
 fn executable_file(path: &Path) -> Option<PathBuf> {

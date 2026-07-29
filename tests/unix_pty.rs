@@ -152,6 +152,7 @@ impl PtyProcess {
             .env("HOME", &isolated_home)
             .env("XDG_CONFIG_HOME", &config_home)
             .env("XDG_STATE_HOME", &state_home)
+            .env("WSCRPT_SKIP_FIRST_RUN_HELP", "1")
             .stdin(Stdio::from(child_stdin))
             .stdout(Stdio::from(child_stdout))
             .stderr(Stdio::from(slave));

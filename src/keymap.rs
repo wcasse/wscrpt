@@ -1418,24 +1418,28 @@ pub fn action_layer_help_lines() -> &'static [String] {
     static LINES: OnceLock<Vec<String>> = OnceLock::new();
     LINES.get_or_init(|| {
         vec![
-            "wscrpt — remote-first editor / IDE".to_owned(),
+            "wscrpt — first hour".to_owned(),
             String::new(),
-            "Type normally in EDIT. Tap Esc for the no-timeout ACTION layer.".to_owned(),
+            "Type normally. Press Esc (or Ctrl-K) for the no-timeout ACTION layer.".to_owned(),
+            "Prefixes wait forever — delayed Esc over mosh will not dump keys into the file.".to_owned(),
+            String::new(),
+            "Essentials".to_owned(),
             help_command_line(&[Action::Save, Action::QuickOpen, Action::Quit]),
-            help_command_line(&[Action::Find, Action::Replace]),
-            help_command_line(&[Action::Undo, Action::Redo]),
-            help_command_line(&[Action::DuplicateLine, Action::DeleteLine]),
-            help_command_line(&[Action::MoveLinesUp, Action::MoveLinesDown]),
-            help_command_line(&[Action::SelectLines, Action::CommandPalette]),
+            help_command_line(&[Action::Find, Action::CommandPalette]),
             help_command_line(&[Action::WorkspaceTree, Action::GlobalSearch]),
             help_command_line(&[Action::Completion, Action::Problems]),
+            help_command_line(&[Action::Format, Action::Hover]),
             help_command_line(&[Action::Terminal, Action::RunDefaultTask]),
-            help_command_line(&[Action::VersionControlStatus, Action::GitDiffPicker]),
-            help_command_line(&[Action::KeymapReference]),
+            help_command_line(&[Action::VersionControlStatus, Action::KeymapReference]),
             String::new(),
-            "Native iPad paste arrives as one bracketed-paste undo step.".to_owned(),
-            "Copy fills the local register and may attempt OSC 52 to the iPad.".to_owned(),
-            "Esc or Ctrl-G closes this help.".to_owned(),
+            "Language servers".to_owned(),
+            "LSP starts only from ~/.config/wscrpt/config.toml (never from the project).".to_owned(),
+            "Run: wscrpt --health   then: wscrpt --print-default-config".to_owned(),
+            "Paste/uncomment a discovered [[language_servers]] block and restart wscrpt.".to_owned(),
+            "Esc c f formats · set format_on_save = true to format before each Save.".to_owned(),
+            String::new(),
+            "Remote notes: mouse off by default for Blink · paste is one undo · Esc/Ctrl-G closes help."
+                .to_owned(),
         ]
     })
 }
@@ -2402,8 +2406,9 @@ mod tests {
         let help = action_layer_help_lines().join("\n");
         for action in [
             Action::Save,
-            Action::DuplicateLine,
-            Action::DeleteLine,
+            Action::QuickOpen,
+            Action::Completion,
+            Action::Format,
             Action::Terminal,
             Action::VersionControlStatus,
             Action::KeymapReference,
@@ -2415,5 +2420,9 @@ mod tests {
                 command.id
             );
         }
+        assert!(
+            help.contains("Language servers") && help.contains("format_on_save"),
+            "first-hour help should cover LSP authorization and format_on_save"
+        );
     }
 }

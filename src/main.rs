@@ -19,23 +19,30 @@ use wscrpt::render::Renderer;
 use wscrpt::session::{Session, SessionStore};
 use wscrpt::terminal::TerminalSession;
 
-const DEFAULT_CONFIG: &str = r#"# ~/.config/wscrpt/config.toml
+fn default_config_text() -> String {
+    let mut text = String::from(
+        r#"# ~/.config/wscrpt/config.toml
 tab_width = 4
 insert_spaces = true
 line_numbers = true
 mouse = false
 scroll_margin = 3
 osc52_copy = true
+# When true, Save requests LSP document formatting before writing to disk.
+format_on_save = false
 
 # Language servers are launched only from this user-owned global config.
 # `wscrpt --health` reports well-known servers found on PATH; it never auto-enables
 # them. Uncomment an entry only after installing and choosing the executable.
-# [[language_servers]]
-# name = "rust-analyzer"
-# extensions = ["rs"]
-# language_id = "rust"
-# argv = ["rust-analyzer"]
-"#;
+
+"#,
+    );
+    let discovered = wscrpt::lsp_discover::discover_language_servers();
+    text.push_str(&wscrpt::lsp_discover::suggested_config_snippets(
+        &discovered,
+    ));
+    text
+}
 const MAX_INPUT_DIAGNOSTIC_EVENTS: usize = 512;
 
 #[derive(Debug, Parser)]
@@ -88,7 +95,7 @@ struct Cli {
 fn main() -> Result<()> {
     let cli = Cli::parse();
     if cli.print_default_config {
-        print!("{DEFAULT_CONFIG}");
+        print!("{}", default_config_text());
         return Ok(());
     }
     if cli.print_command_reference {
@@ -180,6 +187,7 @@ fn main() -> Result<()> {
     if let Some((notice, error)) = startup_notice {
         app.startup_notice(notice, error);
     }
+    app.maybe_open_first_run_help();
     let mut terminal = TerminalSession::new(config.mouse).context("could not enter terminal UI")?;
     let mut renderer = Renderer::default();
     let mut size = terminal.size().context("could not read terminal size")?;

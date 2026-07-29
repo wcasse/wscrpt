@@ -17,6 +17,9 @@ pub struct Config {
     pub mouse: bool,
     pub scroll_margin: usize,
     pub osc52_copy: bool,
+    /// When true, Save requests LSP document formatting before writing disk.
+    /// Formatting remains explicit (`Esc c f`) when this is false.
+    pub format_on_save: bool,
     pub language_servers: Vec<LanguageServerConfig>,
 }
 
@@ -42,6 +45,7 @@ impl Default for Config {
             mouse: false,
             scroll_margin: 3,
             osc52_copy: true,
+            format_on_save: false,
             language_servers: Vec::new(),
         }
     }

@@ -668,6 +668,8 @@ struct UiState {
     terminal_output: Vec<u8>,
     should_quit: bool,
     quit_after_save: bool,
+    /// After a successful format, continue with a disk save (format_on_save).
+    save_after_format: bool,
     save_all_after_save_as: bool,
     close_after_save_as: bool,
     full_redraw: bool,
@@ -883,6 +885,7 @@ impl App {
                 terminal_output: Vec::new(),
                 should_quit: false,
                 quit_after_save: false,
+                save_after_format: false,
                 save_all_after_save_as: false,
                 close_after_save_as: false,
                 full_redraw: true,
@@ -1068,6 +1071,25 @@ impl App {
     /// constructing the application instead of silently hiding either one.
     pub fn startup_notice(&mut self, message: impl Into<String>, error: bool) {
         self.ui.merge_status(message, error);
+    }
+
+    /// Open first-run help once per state dir until the operator dismisses it.
+    pub fn maybe_open_first_run_help(&mut self) {
+        if !crate::onboarding::should_show_first_run_help() {
+            return;
+        }
+        self.ui.mode = UiMode::Help;
+        self.ui.merge_status(
+            "First run — Esc closes help · Esc ? full keys · wscrpt --health for LSP setup",
+            false,
+        );
+    }
+
+    fn dismiss_help(&mut self) {
+        if matches!(self.ui.mode, UiMode::Help) {
+            self.ui.mode = UiMode::Edit;
+            crate::onboarding::mark_first_run_help_seen();
+        }
     }
 
     pub fn apply_session_layout(&mut self, layout: LayoutFlags) {
@@ -1848,17 +1870,20 @@ impl App {
             UiMode::Edit if self.ui.keymap.is_active() => {
                 keymap::action_hint(self.ui.keymap.state())
             }
-            UiMode::Edit => self.current_line_diagnostic().map_or_else(
-                || " Esc actions   ^S save   ^P quick open   ^F find   ^Q quit ".to_owned(),
-                |diagnostic| {
-                    format!(
-                        " {} {}   Esc c p all problems ",
-                        diagnostic.severity.marker(),
-                        diagnostic.message
-                    )
-                },
-            ),
-            UiMode::Help => " Esc / Ctrl-G close help ".to_owned(),
+            UiMode::Edit => {
+                let base = self.current_line_diagnostic().map_or_else(
+                    || " Esc actions   Esc h help   Esc c c complete   Esc c f format ".to_owned(),
+                    |diagnostic| {
+                        format!(
+                            " {} {}   Esc c p all problems ",
+                            diagnostic.severity.marker(),
+                            diagnostic.message
+                        )
+                    },
+                );
+                format!("{base}{}", self.lsp_footer_suffix())
+            }
+            UiMode::Help => " Esc / Ctrl-G / Enter close help ".to_owned(),
             UiMode::Confirm(ConfirmKind::Quit) => {
                 " Unsaved buffers — S save all   D discard & quit   Esc cancel ".to_owned()
             }
@@ -2322,7 +2347,7 @@ impl App {
             UiMode::Prompt(_) => self.handle_prompt_key(key),
             UiMode::Help => {
                 if matches!(key.code, KeyCode::Esc | KeyCode::Enter) {
-                    self.ui.mode = UiMode::Edit;
+                    self.dismiss_help();
                 }
             }
             UiMode::Confirm(kind) => self.handle_confirm_key(kind, key),
@@ -2762,7 +2787,9 @@ impl App {
                 self.record_jump_origin(origin);
             }
             Action::MatchingBracket => self.go_to_matching_bracket(),
-            Action::Help => self.ui.mode = UiMode::Help,
+            Action::Help => {
+                self.ui.mode = UiMode::Help;
+            }
             Action::KeymapReference => self.open_keymap_reference(),
             Action::CommandPalette => self.begin_prompt(PromptFlow::Palette),
             Action::CommandLine => self.begin_prompt(PromptFlow::Command),
@@ -3900,7 +3927,11 @@ impl App {
         }
         match self.ui.mode {
             UiMode::Prompt(_) => self.cancel_prompt(),
-            UiMode::Help | UiMode::Confirm(_) | UiMode::TaskTrust(_) => {
+            UiMode::Help => {
+                self.dismiss_help();
+                self.ui.status = None;
+            }
+            UiMode::Confirm(_) | UiMode::TaskTrust(_) => {
                 self.ui.mode = UiMode::Edit;
                 self.ui.quit_after_save = false;
                 self.ui.save_all_after_save_as = false;
@@ -3920,6 +3951,7 @@ impl App {
 
     fn cancel_pending_lsp_ui_requests(&mut self) {
         self.lsp.cancel_ui_requests();
+        self.ui.save_after_format = false;
     }
 
     fn dismiss_workspace_symbol_prompt(&mut self) {
@@ -4165,6 +4197,74 @@ impl App {
             self.begin_prompt(PromptFlow::SaveAs);
             return;
         }
+        if self.config.format_on_save && self.try_format_before_save() {
+            return;
+        }
+        self.write_active_document_to_disk();
+    }
+
+    /// Request LSP formatting and defer the disk write until it completes.
+    /// Returns true when a format request was queued.
+    fn try_format_before_save(&mut self) -> bool {
+        if self.workspace.active().document.path().is_none() {
+            return false;
+        }
+        if self
+            .workspace
+            .active()
+            .document
+            .path()
+            .and_then(|path| self.config.language_server_for(path))
+            .is_none()
+        {
+            return false;
+        }
+        self.ensure_lsp_service();
+        let ready = self
+            .lsp
+            .client
+            .as_ref()
+            .is_some_and(crate::lsp_client::LspClient::is_ready);
+        if !ready {
+            return false;
+        }
+        // Snapshot context the same way explicit Format does.
+        let Some((editor_id, _, uri, version, incarnation, state_id, _)) =
+            self.lsp_request_context()
+        else {
+            return false;
+        };
+        let context = LspDocumentRequestContext {
+            editor_id,
+            uri: uri.clone(),
+            version,
+            incarnation,
+            state_id,
+        };
+        match self
+            .lsp
+            .client
+            .as_mut()
+            .expect("ready client")
+            .request_formatting(
+                uri,
+                version,
+                self.config.tab_width,
+                self.config.insert_spaces,
+            ) {
+            Ok(request_id) => {
+                self.lsp
+                    .requests
+                    .insert(request_id, PendingLspRequest::Formatting { context });
+                self.ui.save_after_format = true;
+                self.status("Formatting before save…");
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    fn write_active_document_to_disk(&mut self) {
         let result = self.workspace.active_mut().document.save();
         match result {
             Ok(()) => {
@@ -6421,10 +6521,18 @@ impl App {
                     return false;
                 };
                 if !self.accept_lsp_document_response("formatting", &context, &uri, version) {
+                    self.ui.save_after_format = false;
                     return true;
                 }
                 match parse_text_edits(&result) {
-                    Some(edits) if edits.is_empty() => self.status("Document is already formatted"),
+                    Some(edits) if edits.is_empty() => {
+                        if self.ui.save_after_format {
+                            self.ui.save_after_format = false;
+                            self.write_active_document_to_disk();
+                        } else {
+                            self.status("Document is already formatted");
+                        }
+                    }
                     Some(edits) => {
                         let text = self.workspace.active().document.text();
                         match apply_text_edits(&text, &edits) {
@@ -6434,14 +6542,30 @@ impl App {
                                     .active_mut()
                                     .replace_all_from_service(&updated);
                                 match result {
-                                    Ok(()) => self.status("Formatting applied; review and save"),
-                                    Err(error) => self.error(error.to_string()),
+                                    Ok(()) => {
+                                        if self.ui.save_after_format {
+                                            self.ui.save_after_format = false;
+                                            self.write_active_document_to_disk();
+                                        } else {
+                                            self.status("Formatting applied; review and save");
+                                        }
+                                    }
+                                    Err(error) => {
+                                        self.ui.save_after_format = false;
+                                        self.error(error.to_string());
+                                    }
                                 }
                             }
-                            Err(error) => self.error(format!("Invalid formatting edit: {error}")),
+                            Err(error) => {
+                                self.ui.save_after_format = false;
+                                self.error(format!("Invalid formatting edit: {error}"));
+                            }
                         }
                     }
-                    None => self.error("Language server returned malformed formatting edits"),
+                    None => {
+                        self.ui.save_after_format = false;
+                        self.error("Language server returned malformed formatting edits");
+                    }
                 }
                 true
             }
@@ -6453,6 +6577,9 @@ impl App {
                 let Some(pending) = self.lsp.requests.remove(&request_id) else {
                     return false;
                 };
+                if operation == LspOperation::Formatting {
+                    self.ui.save_after_format = false;
+                }
                 if operation == LspOperation::WorkspaceSymbols {
                     let PendingLspRequest::WorkspaceSymbols { prompt_token, .. } = pending else {
                         return false;
@@ -6548,7 +6675,7 @@ impl App {
             .and_then(|path| self.config.language_server_for(path))
             .map(|server| server.name.clone());
         if desired_server.is_none() {
-            self.error("No language server is configured for the active file");
+            self.error_no_language_server_configured();
             return;
         }
         self.ensure_lsp_service();
@@ -6603,7 +6730,7 @@ impl App {
             .and_then(|path| self.config.language_server_for(path))
             .map(|server| server.name.clone());
         let Some(desired_server) = desired_server else {
-            self.error("No language server is configured for the active file");
+            self.error_no_language_server_configured();
             return;
         };
         self.ensure_lsp_service();
@@ -6689,17 +6816,7 @@ impl App {
         self.sync_lsp_document();
         let editor = self.workspace.active();
         let Some(document) = self.lsp.documents.get_by_editor_id(editor.id()) else {
-            let detail = self
-                .workspace
-                .active()
-                .document
-                .path()
-                .and_then(|path| path.extension())
-                .map(|extension| format!(" for .{} files", extension.to_string_lossy()))
-                .unwrap_or_default();
-            self.error(format!(
-                "No ready language server{detail}; configure one globally or wait for startup"
-            ));
+            self.error_no_ready_language_server();
             return None;
         };
         if editor.document.state_id() != document.state_id {
@@ -8037,8 +8154,75 @@ impl App {
         self.lsp.deferred_event = None;
         self.dismiss_workspace_symbol_prompt();
         if !self.ensure_lsp_service() {
-            self.status("No language server is configured for the active file");
+            self.error_no_language_server_configured();
         }
+    }
+
+    fn lsp_footer_suffix(&self) -> String {
+        if let Some(name) = self.lsp.server_name.as_deref() {
+            let phase = if self
+                .lsp
+                .client
+                .as_ref()
+                .is_some_and(|client| client.is_ready())
+            {
+                "ready"
+            } else {
+                "starting"
+            };
+            return format!(" · LSP {name} ({phase}) ");
+        }
+        if let Some(path) = self.workspace.active().document.path() {
+            if self.config.language_server_for(path).is_some() {
+                return " · LSP retry Esc c R ".to_owned();
+            }
+            if crate::lsp_discover::discovered_for_path(path).is_some() {
+                return " · LSP on PATH — authorize in config ".to_owned();
+            }
+        }
+        String::new()
+    }
+
+    fn error_no_language_server_configured(&mut self) {
+        if let Some(path) = self.workspace.active().document.path()
+            && let Some(discovered) = crate::lsp_discover::discovered_for_path(path)
+        {
+            self.error(format!(
+                "No language server authorized for this file; {name} is on PATH — run wscrpt --print-default-config and uncomment it in ~/.config/wscrpt/config.toml",
+                name = discovered.name
+            ));
+            return;
+        }
+        self.error(
+            "No language server is configured for the active file — run wscrpt --health and authorize one in ~/.config/wscrpt/config.toml",
+        );
+    }
+
+    fn error_no_ready_language_server(&mut self) {
+        if let Some(path) = self.workspace.active().document.path() {
+            if self.config.language_server_for(path).is_some() {
+                self.error(
+                    "Language server is configured but not ready — wait for startup or Esc c R to restart",
+                );
+                return;
+            }
+            if let Some(discovered) = crate::lsp_discover::discovered_for_path(path) {
+                self.error(format!(
+                    "No ready language server; {name} is on PATH but not authorized — wscrpt --print-default-config",
+                    name = discovered.name
+                ));
+                return;
+            }
+            let detail = path
+                .extension()
+                .map(|extension| format!(" for .{} files", extension.to_string_lossy()))
+                .unwrap_or_default();
+            self.error(format!(
+                "No ready language server{detail}; configure one in ~/.config/wscrpt/config.toml"
+            ));
+            return;
+        }
+        self.error("No ready language server for this buffer");
     }
 
     fn request_task(&mut self, name: String) {
@@ -13507,7 +13691,9 @@ mod tests {
 
         assert_eq!(
             app.status_message(),
-            Some("No language server is configured for the active file")
+            Some(
+                "No language server is configured for the active file — run wscrpt --health and authorize one in ~/.config/wscrpt/config.toml",
+            )
         );
         assert_eq!(app.lsp.server_name, None);
         assert_eq!(app.lsp.workspace_symbols, None);

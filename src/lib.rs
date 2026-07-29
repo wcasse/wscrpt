@@ -11,6 +11,7 @@ pub mod lsp_client;
 pub mod lsp_discover;
 pub mod lsp_session;
 pub mod lsp_ui;
+pub mod onboarding;
 pub mod pattern;
 pub mod project;
 pub mod recovery;
