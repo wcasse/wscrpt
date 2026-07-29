@@ -469,7 +469,9 @@ fn print_health() {
         println!("warning=mosh and Unicode editing require a UTF-8 locale");
     }
     if tmux {
-        println!("clipboard=verify `tmux show -s set-clipboard` reports `on`");
+        println!(
+            "clipboard=OSC 52 uses tmux DCS passthrough; tmux 3.3+ needs `allow-passthrough on`"
+        );
     }
 }
 

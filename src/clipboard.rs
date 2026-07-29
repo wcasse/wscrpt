@@ -103,6 +103,24 @@ impl From<bool> for Osc52Config {
     }
 }
 
+/// Select OSC 52 framing for the current route.
+///
+/// Inside tmux, a direct OSC 52 sequence terminates at tmux itself and reaches
+/// the outer terminal only when tmux's `set-clipboard` forwarding is on. The
+/// DCS passthrough envelope instead delivers the sequence to the outer
+/// terminal directly; tmux 3.3+ requires `allow-passthrough on` for that.
+pub fn osc52_config_for_route(enabled: bool, inside_tmux: bool) -> Osc52Config {
+    Osc52Config {
+        enabled,
+        transport: if inside_tmux {
+            Osc52Transport::TmuxPassthrough
+        } else {
+            Osc52Transport::Direct
+        },
+        max_payload_bytes: DEFAULT_MAX_OSC52_PAYLOAD_BYTES,
+    }
+}
+
 /// Why a system-clipboard attempt was not prepared.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Osc52Refusal {
@@ -271,6 +289,17 @@ impl Clipboard {
         self.osc52
     }
 
+    /// A short human-readable label for diagnostic views.
+    pub const fn osc52_route_label(&self) -> &'static str {
+        if !self.osc52.enabled {
+            return "off";
+        }
+        match self.osc52.transport {
+            Osc52Transport::Direct => "direct",
+            Osc52Transport::TmuxPassthrough => "tmux-passthrough",
+        }
+    }
+
     /// Replace the OSC 52 policy without changing the internal register.
     pub fn set_osc52_config(&mut self, config: impl Into<Osc52Config>) {
         self.osc52 = config.into();
@@ -365,6 +394,31 @@ mod tests {
         assert!(!disabled.enabled);
         assert_eq!(disabled.transport, Osc52Transport::Direct);
         assert_eq!(disabled.max_payload_bytes, DEFAULT_MAX_OSC52_PAYLOAD_BYTES);
+    }
+
+    #[test]
+    fn route_outside_tmux_selects_direct_transport() {
+        let config = osc52_config_for_route(true, false);
+        assert!(config.enabled);
+        assert_eq!(config.transport, Osc52Transport::Direct);
+        assert_eq!(config.max_payload_bytes, DEFAULT_MAX_OSC52_PAYLOAD_BYTES);
+    }
+
+    #[test]
+    fn route_inside_tmux_selects_dcs_passthrough() {
+        let config = osc52_config_for_route(true, true);
+        assert!(config.enabled);
+        assert_eq!(config.transport, Osc52Transport::TmuxPassthrough);
+        assert_eq!(config.max_payload_bytes, DEFAULT_MAX_OSC52_PAYLOAD_BYTES);
+    }
+
+    #[test]
+    fn route_selection_preserves_disablement_in_and_out_of_tmux() {
+        for inside_tmux in [false, true] {
+            let config = osc52_config_for_route(false, inside_tmux);
+            assert!(!config.enabled);
+            assert_eq!(config.max_payload_bytes, DEFAULT_MAX_OSC52_PAYLOAD_BYTES);
+        }
     }
 
     #[test]

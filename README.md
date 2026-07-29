@@ -85,7 +85,7 @@ On the **iPad**:
 4. If keys feel wrong: `wscrpt --input-diagnostics` and work through the [iPad matrix](docs/IPAD_BLINK_QA.md).
 5. Prefer UTF-8 locales; `--health` warns when the locale is not UTF-8.
 
-Clipboard: internal yank always works; OSC 52 is optional (`--no-osc52` or config). With tmux, confirm `tmux show -s set-clipboard` is sensible for your setup.
+Clipboard: internal yank always works; OSC 52 is optional (`--no-osc52` or config). Inside tmux, wscrpt wraps OSC 52 in tmux's passthrough envelope so it reaches Blink directly — on tmux 3.3+ add `set -g allow-passthrough on` to your tmux config.
 
 ## First run
 

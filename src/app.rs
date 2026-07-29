@@ -11,7 +11,7 @@ use crossterm::event::{
     Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 
-use crate::clipboard::{Clipboard, CopyOutcome};
+use crate::clipboard::{Clipboard, CopyOutcome, osc52_config_for_route};
 use crate::command::{self, ExCommand};
 use crate::config::Config;
 use crate::git::{BranchHead, FileState, GitRepository};
@@ -858,7 +858,10 @@ impl App {
         // Indexing, Git discovery, and recovery scanning start only after the
         // terminal is initialized. `App::new` remains a first-frame-safe constructor.
         let mut status = None;
-        let osc52 = config.osc52_copy;
+        // Inside tmux, direct OSC 52 stops at tmux; the DCS passthrough
+        // envelope reaches the outer terminal (Blink) regardless of tmux's
+        // `set-clipboard` forwarding.
+        let osc52 = osc52_config_for_route(config.osc52_copy, env::var_os("TMUX").is_some());
         let (task_runner, task_error) = match TaskConfig::load_if_present(&workspace.root) {
             Ok(Some(config)) => (Some(TaskRunner::new(workspace.root.clone(), config)), None),
             Ok(None) => (None, None),
@@ -8626,14 +8629,15 @@ impl App {
             mouse = if self.config.mouse { "on" } else { "off" }
         ));
         text.push_str(&format!(
-            "Route snapshot: TERM={} transport={} tmux={}\n",
+            "Route snapshot: TERM={} transport={} tmux={} osc52={}\n",
             env_value("TERM", "unknown"),
             route_transport(),
             if env::var_os("TMUX").is_some() {
                 "yes"
             } else {
                 "no"
-            }
+            },
+            self.ui.clipboard.osc52_route_label()
         ));
         text.push_str("\nActive buffer\n");
         text.push_str(&format!("Name: {}\n", active.document.display_name()));
