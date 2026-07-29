@@ -22,6 +22,25 @@ const MIN_WIDTH_FOR_PROJECT_SIDEBAR: usize = 72;
 const MIN_EDITOR_WIDTH_WITH_PROJECT_SIDEBAR: usize = 48;
 const MAX_PROJECT_SIDEBAR_WIDTH: usize = 30;
 
+/// A fixed twelve-step xterm-256 hue wheel for buffer tabs.
+///
+/// Tab position owns the color, so changing the active buffer never recolors
+/// the header. The first entry deliberately preserves the original blue tab.
+const HEADER_TAB_CHROMATIC_SCALE: [(Color, Color); 12] = [
+    (Color::White, Color::AnsiValue(24)),  // blue
+    (Color::White, Color::AnsiValue(25)),  // azure
+    (Color::White, Color::AnsiValue(61)),  // indigo
+    (Color::White, Color::AnsiValue(91)),  // violet
+    (Color::White, Color::AnsiValue(125)), // magenta
+    (Color::White, Color::AnsiValue(124)), // red
+    (Color::White, Color::AnsiValue(130)), // orange
+    (Color::Black, Color::AnsiValue(136)), // amber
+    (Color::Black, Color::AnsiValue(64)),  // chartreuse
+    (Color::Black, Color::AnsiValue(29)),  // green
+    (Color::Black, Color::AnsiValue(30)),  // teal
+    (Color::Black, Color::AnsiValue(31)),  // cyan
+];
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Style {
     fg: Color,
@@ -516,8 +535,6 @@ fn build_project_sidebar_rows(app: &App, layout: Layout, sidebar_width: usize) -
 
 fn build_header(app: &App, width: usize) -> Row {
     let base = Style::new(Color::AnsiValue(250), Color::AnsiValue(235));
-    let active = Style::new(Color::White, Color::AnsiValue(24)).bold();
-    let dirty = Style::new(Color::AnsiValue(223), Color::AnsiValue(235));
     let overflow = Style::new(Color::AnsiValue(223), Color::AnsiValue(235)).bold();
     let mut row = Row::default();
     row.push_fitted(
@@ -564,14 +581,7 @@ fn build_header(app: &App, width: usize) -> Row {
         .skip(window.start)
         .take(window.end.saturating_sub(window.start))
     {
-        let editor = &app.workspace().buffers()[index];
-        let style = if index == app.workspace().active_index() {
-            active
-        } else if editor.document.is_modified() {
-            dirty
-        } else {
-            base
-        };
+        let style = header_tab_style(index, index == app.workspace().active_index());
         row.push_fitted(label, style, label_limit);
     }
     if hidden_right {
@@ -579,6 +589,13 @@ fn build_header(app: &App, width: usize) -> Row {
     }
     row.pad_to(width, base);
     row
+}
+
+fn header_tab_style(index: usize, active: bool) -> Style {
+    let (foreground, background) =
+        HEADER_TAB_CHROMATIC_SCALE[index % HEADER_TAB_CHROMATIC_SCALE.len()];
+    let style = Style::new(foreground, background);
+    if active { style.bold() } else { style }
 }
 
 fn header_tab_window(label_widths: &[usize], active: usize, available: usize) -> Range<usize> {
@@ -1593,7 +1610,40 @@ mod tests {
         assert!(!rendered.contains("1:[untitled]"), "{rendered:?}");
         assert_eq!(header.width, 40);
         assert!(header.spans.iter().any(|span| {
-            span.text.contains("9:active.rs") && span.style.bg == Color::AnsiValue(24)
+            span.text.contains("9:active.rs") && span.style.bg == Color::AnsiValue(64)
+        }));
+    }
+
+    #[test]
+    fn header_tabs_use_a_stable_repeating_twelve_color_scale() {
+        let expected_backgrounds = [24, 25, 61, 91, 125, 124, 130, 136, 64, 29, 30, 31];
+        for (index, expected) in expected_backgrounds.into_iter().enumerate() {
+            assert_eq!(
+                header_tab_style(index, false).bg,
+                Color::AnsiValue(expected),
+                "tab {} has the wrong chromatic position",
+                index + 1
+            );
+        }
+        assert_eq!(header_tab_style(12, false).bg, Color::AnsiValue(24));
+        assert_eq!(
+            header_tab_style(0, true),
+            Style::new(Color::White, Color::AnsiValue(24)).bold()
+        );
+
+        let mut app = app_with_text("");
+        for index in 2..=13 {
+            app.workspace_mut()
+                .open_virtual(format!("buffer-{index}.rs"), "");
+        }
+        let header = build_header(&app, 512);
+        assert!(header.spans.iter().any(|span| {
+            span.text.contains("1:Untitled") && span.style.bg == Color::AnsiValue(24)
+        }));
+        assert!(header.spans.iter().any(|span| {
+            span.text.contains("13:buffer-13.rs")
+                && span.style.bg == Color::AnsiValue(24)
+                && span.style.bold
         }));
     }
 
