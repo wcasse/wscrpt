@@ -5,6 +5,16 @@
 /scratch/
 /autoresearch/
 
+# Remote preview spike dependencies and evidence
+/previewd/node_modules/
+/output/preview-phase0/
+
+# Native preview harness local build state
+/clients/ipad-preview-harness/DerivedData/
+/clients/ipad-preview-harness/build/
+xcuserdata/
+*.xcuserstate
+
 # Provenance payloads: keep Markdown + checksum index; ignore binaries/crates
 /dist/checkpoints/*
 !/dist/checkpoints/*.md
