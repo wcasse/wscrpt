@@ -1,0 +1,24 @@
+# Build
+/target/
+
+# Local experiment lanes (never part of the release tree)
+/scratch/
+/autoresearch/
+
+# Provenance payloads: keep Markdown + checksum index; ignore binaries/crates
+/dist/checkpoints/*
+!/dist/checkpoints/*.md
+!/dist/checkpoints/SHA256SUMS
+!/dist/checkpoints/README.md
+
+# Editor / OS noise
+*.swp
+*.tmp
+*.log
+.DS_Store
+.idea/
+.vscode/
+*.crate
+
+# Local MCP / tooling residue
+unreal_mcp.log

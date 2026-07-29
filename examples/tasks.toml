@@ -1,0 +1,18 @@
+# Example workspace task file.
+# Copy to `.wscrpt/tasks.toml` at your project root and adjust.
+#
+# Every run still requires an explicit trust confirmation inside wscrpt.
+
+version = 1
+
+[tasks.check]
+argv = ["cargo", "check", "--all-targets"]
+cwd = "."
+env = { CARGO_TERM_COLOR = "never" }
+
+[tasks.test]
+argv = ["cargo", "test", "--all-targets", "--locked"]
+cwd = "."
+
+[tasks.fmt-check]
+argv = ["cargo", "fmt", "--all", "--", "--check"]
