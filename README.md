@@ -39,7 +39,7 @@ Rust **1.88** or newer. Unix-like host (macOS/Linux).
 **From GitHub (recommended until crates.io):**
 
 ```sh
-cargo install --git https://github.com/wcasse/wscrpt --tag v0.2.0 --locked
+cargo install --git https://github.com/wcasse/wscrpt --tag v0.2.1 --locked
 wscrpt --health
 ```
 
@@ -72,7 +72,7 @@ cargo run --release -- .
 On the **host** (once):
 
 ```sh
-cargo install --git https://github.com/wcasse/wscrpt --tag v0.2.0 --locked
+cargo install --git https://github.com/wcasse/wscrpt --tag v0.2.1 --locked
 # optional: put a sample task file in each project
 mkdir -p .wscrpt && cp /path/to/wscrpt/examples/tasks.toml .wscrpt/tasks.toml
 ```

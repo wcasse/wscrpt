@@ -8,7 +8,7 @@ Not blocked on the iPad matrix. Use this while the hardware pass waits.
 - [x] MIT license
 - [x] Single product/binary name `wscrpt`
 - [x] CI: stable macOS + Linux + MSRV 1.88
-- [x] Tag `v0.2.0` (move only with intentional retag after fixes)
+- [x] Tag `v0.2.0` — **pushed tags never move.** Fixes after a public tag ship as a new patch version (`v0.2.1`, …) so existing clones stay reproducible.
 - [x] CONTRIBUTING / SECURITY / issue templates
 - [x] Contributor map (`docs/CONTRIBUTOR_MAP.md`)
 - [x] Host verify gate (`scripts/verify.sh`)
@@ -19,7 +19,7 @@ Not blocked on the iPad matrix. Use this while the hardware pass waits.
 
 | Priority | Item | Why |
 | --- | --- | --- |
-| P0 | GitHub **Release** notes page for `v0.2.0` | Discoverability; install snippet; checksums |
+| P0 | GitHub **Release** notes pages for `v0.2.0` and `v0.2.1` (drafts in `docs/releases/`) | Discoverability; install snippet; checksums |
 | P0 | Enable **private vulnerability reporting** in repo settings | Matches SECURITY.md |
 | P0 | `cargo publish --dry-run` then publish when ready | One-line install for strangers |
 | P1 | Demo GIF / short terminal recording | First-impression for README |

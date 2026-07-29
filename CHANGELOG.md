@@ -1,5 +1,27 @@
 # Changelog
 
+## [Unreleased]
+
+## [0.2.1] - 2026-07-29
+
+### Added
+
+- First-run help: a one-time overlay on the first launch, remembered in the XDG state directory and never written into the workspace. `WSCRPT_SKIP_FIRST_RUN_HELP=1` skips it for automation.
+- Daily LSP visibility: the footer shows the attached server and its state, errors name the discovered binary and the exact config step to authorize it, and `--print-default-config` emits ready-to-uncomment `[[language_servers]]` blocks for servers found on PATH.
+- Optional `format_on_save` (default off; explicit `Esc c f` formatting is unchanged).
+- The Workspace Info route snapshot reports the selected OSC 52 clipboard transport.
+
+### Changed
+
+- Clipboard copies inside tmux now wrap OSC 52 in tmux's DCS passthrough envelope, reaching the outer terminal (Blink) directly instead of depending on tmux's `set-clipboard` forwarding. On tmux 3.3+ this requires `allow-passthrough on`; `wscrpt --health` says so inside tmux.
+- Renderer paint reductions for remote links: differential style emission per span and allocation-free grapheme display cut per-frame output bytes measurably over SSH/mosh.
+- Buffer tabs use a fixed position-indexed color scale, so switching buffers never recolors the header.
+
+### Fixed
+
+- Mouse clicks with the project sidebar visible landed sidebar-width cells left of the pointer and used the wrong width for wrapped-scroll metrics. Hit-testing now mirrors the renderer's sidebar layout; clicks inside the sidebar region are ignored.
+- `scripts/verify.sh` no longer hardcodes the package version; the gate follows `Cargo.toml`.
+
 ## [0.2.0] - 2026-07-28
 
 This release narrows `wscrpt` to a safer remote editor/IDE core before further feature work.
