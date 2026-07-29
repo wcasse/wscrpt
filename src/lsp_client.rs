@@ -451,8 +451,7 @@ impl fmt::Display for LspClientError {
             Self::InvalidConfig(message) => write!(formatter, "invalid LSP config: {message}"),
             Self::Spawn { executable, source } => write!(
                 formatter,
-                "could not spawn language server {:?}: {source}",
-                executable
+                "could not spawn language server {executable:?}: {source}"
             ),
             Self::NotReady => formatter.write_str("language server has not initialized"),
             Self::Stopped => formatter.write_str("language server has stopped"),

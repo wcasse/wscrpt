@@ -3354,8 +3354,7 @@ impl App {
             .unzip();
         let mut notice = if listing_truncated || index.is_tree_truncated() {
             format!(
-                "Partial tree ({} visible-node cap or index limit) · Right/Enter expand · Left collapse",
-                MAX_WORKSPACE_TREE_VISIBLE_NODES
+                "Partial tree ({MAX_WORKSPACE_TREE_VISIBLE_NODES} visible-node cap or index limit) · Right/Enter expand · Left collapse"
             )
         } else {
             "Right/Enter expand · Left collapse/up · type to filter files".to_owned()
@@ -3481,8 +3480,7 @@ impl App {
         }
         if self.project.tree_expanded.len() >= MAX_WORKSPACE_TREE_EXPANDED_DIRECTORIES {
             self.error(format!(
-                "Workspace tree already retains {} expanded directories; collapse a branch first",
-                MAX_WORKSPACE_TREE_EXPANDED_DIRECTORIES
+                "Workspace tree already retains {MAX_WORKSPACE_TREE_EXPANDED_DIRECTORIES} expanded directories; collapse a branch first"
             ));
             return;
         }

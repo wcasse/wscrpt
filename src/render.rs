@@ -1252,7 +1252,7 @@ fn overlay_candidates(layout: Layout, rows: &mut [Row], overlay: crate::app::Ove
         let style = if item_index == selected { active } else { body };
         let mut row = Row::default();
         row.push(" ".repeat(x), Style::new(Color::Reset, Color::Reset));
-        row.push_fitted(&format!(" {}", item), style, x + box_width);
+        row.push_fitted(&format!(" {item}"), style, x + box_width);
         row.pad_to(x + box_width, style);
         row.pad_to(layout.width, Style::new(Color::Reset, Color::Reset));
         rows[y + visible_index + 1] = row;
