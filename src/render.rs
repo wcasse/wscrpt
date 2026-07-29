@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::io::{self, Write};
 use std::ops::Range;
@@ -77,6 +78,25 @@ impl Row {
             self.spans.last_mut().unwrap().text.push_str(&text);
         } else {
             self.spans.push(Span { text, style });
+        }
+    }
+
+    /// Push text that is already sanitized and has a known width.
+    /// This avoids redundant grapheme iteration and width calculation.
+    fn push_clean(&mut self, text: &str, width: usize, style: Style) {
+        if text.is_empty() {
+            return;
+        }
+        debug_assert!(!text.chars().any(char::is_control));
+        debug_assert_eq!(UnicodeWidthStr::width(text), width);
+        self.width += width;
+        if self.spans.last().is_some_and(|span| span.style == style) {
+            self.spans.last_mut().unwrap().text.push_str(text);
+        } else {
+            self.spans.push(Span {
+                text: text.to_owned(),
+                style,
+            });
         }
     }
 
@@ -257,7 +277,13 @@ impl Renderer {
         let (rows, cursor) = build_frame(app, full_layout, editor_layout, sidebar_width);
 
         if self.previous_size != size || self.invalidated {
-            queue!(output, Hide, Clear(ClearType::All))?;
+            queue!(
+                output,
+                Hide,
+                SetAttribute(Attribute::Reset),
+                ResetColor,
+                Clear(ClearType::All)
+            )?;
             self.previous.clear();
             self.previous_size = size;
             self.invalidated = false;
@@ -887,9 +913,10 @@ fn append_document_range(
         let visible_start = left.saturating_sub(visual_column);
         let visible_end = cell_width.min(right.saturating_sub(visual_column));
         if visible_start == 0 && visible_end == cell_width {
-            row.push(rendered, style);
+            row.push_clean(&rendered, cell_width, style);
         } else {
-            row.push(" ".repeat(visible_end.saturating_sub(visible_start)), style);
+            let spaces = " ".repeat(visible_end.saturating_sub(visible_start));
+            row.push_clean(&spaces, visible_end.saturating_sub(visible_start), style);
         }
         visual_column = visual_end;
     }
@@ -1088,7 +1115,7 @@ fn layout_prompt_window(
         logical_column = logical_column.saturating_add(cell_width);
         before_width = before_width.saturating_add(cell_width);
         before.push_back(PromptCell {
-            text,
+            text: text.into_owned(),
             width: cell_width,
         });
         loop {
@@ -1307,29 +1334,55 @@ fn editor_cursor(
 }
 
 fn paint_row(output: &mut impl Write, y: u16, row: &Row) -> io::Result<()> {
-    queue!(
-        output,
-        MoveTo(0, y),
-        SetAttribute(Attribute::Reset),
-        ResetColor
-    )?;
+    queue!(output, MoveTo(0, y))?;
+    let mut previous_style: Option<Style> = None;
     for span in &row.spans {
-        queue!(
-            output,
-            SetForegroundColor(span.style.fg),
-            SetBackgroundColor(span.style.bg),
-            SetAttribute(if span.style.bold {
-                Attribute::Bold
-            } else {
-                Attribute::NormalIntensity
-            }),
-            SetAttribute(if span.style.underlined {
-                Attribute::Underlined
-            } else {
-                Attribute::NoUnderline
-            }),
-            Print(&span.text)
-        )?;
+        if let Some(previous) = previous_style {
+            if previous.fg != span.style.fg {
+                queue!(output, SetForegroundColor(span.style.fg))?;
+            }
+            if previous.bg != span.style.bg {
+                queue!(output, SetBackgroundColor(span.style.bg))?;
+            }
+            if previous.bold != span.style.bold {
+                queue!(
+                    output,
+                    SetAttribute(if span.style.bold {
+                        Attribute::Bold
+                    } else {
+                        Attribute::NormalIntensity
+                    })
+                )?;
+            }
+            if previous.underlined != span.style.underlined {
+                queue!(
+                    output,
+                    SetAttribute(if span.style.underlined {
+                        Attribute::Underlined
+                    } else {
+                        Attribute::NoUnderline
+                    })
+                )?;
+            }
+        } else {
+            queue!(
+                output,
+                SetForegroundColor(span.style.fg),
+                SetBackgroundColor(span.style.bg),
+                SetAttribute(if span.style.bold {
+                    Attribute::Bold
+                } else {
+                    Attribute::NormalIntensity
+                }),
+                SetAttribute(if span.style.underlined {
+                    Attribute::Underlined
+                } else {
+                    Attribute::NoUnderline
+                })
+            )?;
+        }
+        queue!(output, Print(&span.text))?;
+        previous_style = Some(span.style);
     }
     queue!(
         output,
@@ -1339,18 +1392,22 @@ fn paint_row(output: &mut impl Write, y: u16, row: &Row) -> io::Result<()> {
     )
 }
 
-fn display_grapheme(grapheme: &str, column: usize, tab_width: usize) -> (String, usize) {
+fn display_grapheme<'a>(
+    grapheme: &'a str,
+    column: usize,
+    tab_width: usize,
+) -> (Cow<'a, str>, usize) {
     let width = grapheme_cell_width(grapheme, column, tab_width);
     if grapheme == "\t" {
-        return (" ".repeat(width), width);
+        return (Cow::Owned(" ".repeat(width)), width);
     }
     if grapheme.chars().any(char::is_control) {
-        return ("�".to_owned(), 1);
+        return (Cow::Borrowed("�"), 1);
     }
     if UnicodeWidthStr::width(grapheme) == 0 {
-        ("◌".to_owned(), 1)
+        (Cow::Borrowed("◌"), 1)
     } else {
-        (grapheme.to_owned(), width)
+        (Cow::Borrowed(grapheme), width)
     }
 }
 
@@ -1437,7 +1494,69 @@ mod tests {
 
     #[test]
     fn control_graphemes_are_visible() {
-        assert_eq!(display_grapheme("\0", 0, 4), ("�".to_owned(), 1));
+        assert_eq!(display_grapheme("\0", 0, 4), (Cow::Borrowed("�"), 1));
+    }
+
+    #[test]
+    fn paint_row_sets_initial_style_emits_only_changes_and_resets() {
+        let first = Style::new(Color::AnsiValue(10), Color::AnsiValue(20))
+            .bold()
+            .underlined();
+        let second = Style::new(Color::AnsiValue(11), Color::AnsiValue(20))
+            .bold()
+            .underlined();
+        let row = Row {
+            spans: vec![
+                Span {
+                    text: "left".to_owned(),
+                    style: first,
+                },
+                Span {
+                    text: "right".to_owned(),
+                    style: second,
+                },
+            ],
+            width: 9,
+        };
+
+        let mut actual = Vec::new();
+        paint_row(&mut actual, 7, &row).unwrap();
+        let mut expected = Vec::new();
+        queue!(
+            expected,
+            MoveTo(0, 7),
+            SetForegroundColor(first.fg),
+            SetBackgroundColor(first.bg),
+            SetAttribute(Attribute::Bold),
+            SetAttribute(Attribute::Underlined),
+            Print("left"),
+            SetForegroundColor(second.fg),
+            Print("right"),
+            ResetColor,
+            SetAttribute(Attribute::Reset),
+            Clear(ClearType::UntilNewLine)
+        )
+        .unwrap();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn initial_draw_resets_terminal_style_before_painting() {
+        let mut app = app_with_text("text");
+        let mut renderer = Renderer::default();
+        let mut actual = Vec::new();
+        renderer.draw(&mut actual, &mut app, (80, 24)).unwrap();
+
+        let mut expected_prefix = Vec::new();
+        queue!(
+            expected_prefix,
+            Hide,
+            SetAttribute(Attribute::Reset),
+            ResetColor,
+            Clear(ClearType::All)
+        )
+        .unwrap();
+        assert!(actual.starts_with(&expected_prefix));
     }
 
     #[test]
