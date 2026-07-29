@@ -32,7 +32,7 @@ use crate::lsp_ui::{
 };
 use crate::project::{ProjectIndex, ProjectTreeEntry, fuzzy_path_score};
 use crate::recovery::{RecoveryRecord, RecoveryStore};
-use crate::render::{CandidateOverlayLayout, Layout};
+use crate::render::{CandidateOverlayLayout, Layout, project_sidebar_width};
 use crate::search::{SearchMatch, SearchQuery, SearchWorker};
 use crate::services::{GitSnapshot, RecoverySnapshot, ServiceCoordinator, ServiceEvent};
 use crate::session::{
@@ -4570,7 +4570,7 @@ impl App {
     }
 
     fn handle_mouse(&mut self, mouse: MouseEvent) {
-        let layout = Layout::calculate(
+        let full_layout = Layout::calculate(
             self.ui.screen_size.0,
             self.ui.screen_size.1,
             self.workspace.active().document.line_count(),
@@ -4578,9 +4578,22 @@ impl App {
         );
         if !matches!(self.ui.mode, UiMode::Edit) {
             self.ui.mouse_selecting = false;
-            self.handle_transient_mouse(mouse, layout);
+            self.handle_transient_mouse(mouse, full_layout);
             return;
         }
+        // The renderer shifts the editor right of the project sidebar and lays
+        // it out at the reduced width; hit-testing must mirror both.
+        let sidebar_width = project_sidebar_width(self, full_layout);
+        let layout = if sidebar_width > 0 {
+            Layout::calculate(
+                full_layout.width.saturating_sub(sidebar_width) as u16,
+                self.ui.screen_size.1,
+                self.workspace.active().document.line_count(),
+                self.config.line_numbers,
+            )
+        } else {
+            full_layout
+        };
         let before = self.active_editor_intent();
         self.ui.keymap.cancel();
         match mouse.kind {
@@ -4621,11 +4634,15 @@ impl App {
                 }
             }
             MouseEventKind::Down(MouseButton::Left) => {
-                self.ui.mouse_selecting = true;
-                self.place_mouse_cursor(mouse.column, mouse.row, layout, false);
+                if let Some(column) = mouse.column.checked_sub(sidebar_width as u16) {
+                    self.ui.mouse_selecting = true;
+                    self.place_mouse_cursor(column, mouse.row, layout, false);
+                }
             }
             MouseEventKind::Drag(MouseButton::Left) if self.ui.mouse_selecting => {
-                self.place_mouse_cursor(mouse.column, mouse.row, layout, true);
+                if let Some(column) = mouse.column.checked_sub(sidebar_width as u16) {
+                    self.place_mouse_cursor(column, mouse.row, layout, true);
+                }
             }
             MouseEventKind::Up(MouseButton::Left) => self.ui.mouse_selecting = false,
             _ => {}
@@ -12386,6 +12403,49 @@ mod tests {
         assert_eq!(app.workspace.active().viewport.top_wrap_char, 74);
         app.prepare_viewport(layout);
         assert_eq!(app.workspace.active().viewport.top_wrap_char, 74);
+    }
+
+    #[test]
+    fn sidebar_mouse_click_lands_on_the_clicked_character() {
+        let mut app = app_with_text("abcdefghij\nklmnopqrst\n");
+        app.set_screen_size((100, 24));
+        app.execute_action(Action::WorkspaceSidebar);
+        assert!(app.workspace_sidebar_visible());
+
+        let line_count = app.workspace.active().document.line_count();
+        let full_layout = Layout::calculate(100, 24, line_count, app.config.line_numbers);
+        let sidebar_width = project_sidebar_width(&app, full_layout);
+        assert!(sidebar_width > 0);
+        let editor_layout = Layout::calculate(
+            (full_layout.width - sidebar_width) as u16,
+            24,
+            line_count,
+            app.config.line_numbers,
+        );
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: (sidebar_width + editor_layout.gutter_width + 5) as u16,
+            row: editor_layout.content_y as u16,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert_eq!(app.workspace.active().cursor, 5);
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: 0,
+            row: editor_layout.content_y as u16,
+            modifiers: KeyModifiers::NONE,
+        });
+
+        // A click inside the sidebar must not move the cursor or start a drag.
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: (sidebar_width / 2) as u16,
+            row: editor_layout.content_y as u16,
+            modifiers: KeyModifiers::NONE,
+        });
+        assert_eq!(app.workspace.active().cursor, 5);
+        assert!(!app.ui.mouse_selecting);
     }
 
     #[test]

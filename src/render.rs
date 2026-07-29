@@ -343,7 +343,7 @@ impl Renderer {
     }
 }
 
-fn project_sidebar_width(app: &App, layout: Layout) -> usize {
+pub(crate) fn project_sidebar_width(app: &App, layout: Layout) -> usize {
     if !app.workspace_sidebar_visible()
         || layout.too_small
         || layout.width < MIN_WIDTH_FOR_PROJECT_SIDEBAR
