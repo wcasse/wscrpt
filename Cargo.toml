@@ -6,9 +6,8 @@ rust-version = "1.85"
 description = "A streamlined remote-first terminal IDE for iPad keyboards over SSH and mosh"
 license = "MIT"
 readme = "README.md"
-# repository / homepage: set when the public GitHub remote exists
-# repository = "https://github.com/OWNER/wscrpt"
-# homepage = "https://github.com/OWNER/wscrpt"
+repository = "https://github.com/wcasse/wscrpt"
+homepage = "https://github.com/wcasse/wscrpt"
 keywords = ["editor", "terminal", "ide", "ssh", "ipad"]
 categories = ["command-line-utilities", "development-tools", "text-editors"]
 exclude = ["dist/", "scratch/", "autoresearch/", "*.log"]
