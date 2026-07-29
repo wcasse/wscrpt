@@ -22,6 +22,8 @@ exclude = [
     "docs/REMOTE_AGENT_PREVIEW_PHASE_0*",
     "scripts/verify-preview-phase0.sh",
     ".github/workflows/preview-phase0.yml",
+    "docs/assets/",
+    "docs/demo.tape",
     "*.log",
 ]
 
