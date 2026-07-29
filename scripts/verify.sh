@@ -28,18 +28,20 @@ echo "==> documentation"
 cargo test --doc --all-features --locked
 
 echo "==> package"
+PACKAGE_VERSION=$(cargo pkgid --locked | sed -e 's/.*#//' -e 's/.*@//')
+echo "package version: $PACKAGE_VERSION"
 cargo package --locked --allow-dirty
 
 VERIFY_TEMP=$(mktemp -d)
 trap 'rm -rf "$VERIFY_TEMP"' EXIT HUP INT TERM
 mkdir -p "$VERIFY_TEMP/source"
-PACKAGE="$REPOSITORY_ROOT/target/package/wscrpt-0.2.0.crate"
+PACKAGE="$REPOSITORY_ROOT/target/package/wscrpt-$PACKAGE_VERSION.crate"
 shasum -a 256 "$PACKAGE"
 tar -xzf "$PACKAGE" -C "$VERIFY_TEMP/source"
 
 echo "==> isolated install from packaged source"
 cargo install \
-    --path "$VERIFY_TEMP/source/wscrpt-0.2.0" \
+    --path "$VERIFY_TEMP/source/wscrpt-$PACKAGE_VERSION" \
     --root "$VERIFY_TEMP/install" \
     --locked
 
