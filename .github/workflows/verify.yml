@@ -20,6 +20,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@v2
       - name: Install tmux on Linux
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y tmux
@@ -36,6 +37,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.88.0
         with:
           components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@v2
       - name: Install tmux
         run: sudo apt-get update && sudo apt-get install -y tmux
       - name: Verify MSRV
