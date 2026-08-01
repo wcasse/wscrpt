@@ -335,6 +335,8 @@ enum PromptFlow {
     WorkspaceSymbols,
     WorkspaceOutline,
     Stickies,
+    AgentGoal,
+    AgentActivity,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -369,6 +371,8 @@ enum PromptCompletion {
     GoToLine(String),
     SubmitWorkspaceSymbol(String),
     WorkspaceSymbolPending,
+    StartAgent(String),
+    Dismiss,
 }
 
 impl PromptFlow {
@@ -410,6 +414,8 @@ impl PromptFlow {
             Self::WorkspaceSymbols => " workspace symbols › ",
             Self::WorkspaceOutline => " outline › ",
             Self::Stickies => " stickies (Enter open · A archive) › ",
+            Self::AgentGoal => " agent goal › ",
+            Self::AgentActivity => " agent activity (Enter dismiss) › ",
         }
     }
 
@@ -488,6 +494,8 @@ impl PromptFlow {
             | Self::Stickies => {
                 PromptCompletion::Select(prompt.entries.get(prompt.selected).cloned())
             }
+            Self::AgentActivity => PromptCompletion::Dismiss,
+            Self::AgentGoal => PromptCompletion::StartAgent(prompt.input.clone()),
             Self::Command => PromptCompletion::ExecuteCommand(prompt.input.clone()),
             Self::SaveAs => PromptCompletion::SaveAs(prompt.input.clone()),
             Self::OpenPath => PromptCompletion::OpenPath(prompt.input.clone()),
@@ -834,6 +842,14 @@ struct TaskState {
     last: Option<String>,
 }
 
+/// Host-local agent orchestration (W2). Fake agent by default; ACP argv later.
+struct AgentUiState {
+    coordinator: crate::agent::AgentCoordinator,
+    job: Option<crate::agent_runtime::AgentJob>,
+    port: Option<crate::agent_runtime::AgentEventPort>,
+    last_summary: Option<String>,
+}
+
 impl TaskState {
     fn is_running(&self) -> bool {
         self.handle
@@ -886,6 +902,7 @@ pub struct App {
     project: ProjectState,
     lsp: LspState,
     tasks: TaskState,
+    agent: AgentUiState,
     persistence: PersistenceState,
     git: GitState,
     services: ServiceCoordinator,
@@ -957,6 +974,12 @@ impl App {
                 index_built_at: None,
                 search_worker: None,
                 status: ServiceStatus::Idle,
+            },
+            agent: AgentUiState {
+                coordinator: crate::agent::AgentCoordinator::new(1),
+                job: None,
+                port: None,
+                last_summary: None,
             },
             lsp: LspState {
                 client: None,
@@ -1894,6 +1917,7 @@ impl App {
             PromptFlow::WorkspaceSymbols => "WORKSPACE SYMBOLS",
             PromptFlow::WorkspaceOutline => "WORKSPACE OUTLINE",
             PromptFlow::Stickies => "STICKIES",
+            PromptFlow::AgentActivity => "AGENT ACTIVITY",
             _ => return None,
         };
         Some(OverlayView {
@@ -2134,6 +2158,7 @@ impl App {
     /// are filtered by the worker before they reach the active overlay.
     pub fn poll_services(&mut self) -> bool {
         let mut redraw = false;
+        redraw |= self.poll_agent_events();
         while let Ok(event) = self.services.try_recv() {
             if self.services.is_current(&event) {
                 redraw |= self.handle_service_event(event);
@@ -3001,6 +3026,9 @@ impl App {
             Action::Recovery => self.begin_prompt(PromptFlow::Recovery),
             Action::Stickies => self.open_stickies(),
             Action::NewSticky => self.create_new_sticky(),
+            Action::AgentRun => self.begin_agent_run_prompt(),
+            Action::AgentActivity => self.open_agent_activity(),
+            Action::AgentCancel => self.cancel_agent_run(),
             Action::GlobalSearch if self.project.status.is_pending() => {
                 self.status("Workspace is still indexing; project search will be available shortly")
             }
@@ -3405,6 +3433,19 @@ impl App {
             }
             PromptFlow::GlobalSearch => (Vec::new(), Vec::new()),
             PromptFlow::Stickies => self.sticky_candidates(&query),
+            PromptFlow::AgentActivity => {
+                let lines = crate::agent_runtime::format_receipt_lines(&self.agent.coordinator, 48);
+                let labels = lines
+                    .into_iter()
+                    .filter(|line| !line.is_empty())
+                    .collect::<Vec<_>>();
+                let entries = labels
+                    .iter()
+                    .map(|_| PromptEntry::Action(Action::AgentActivity))
+                    .collect();
+                (labels, entries)
+            }
+            PromptFlow::AgentGoal => (Vec::new(), Vec::new()),
             PromptFlow::Tasks => self
                 .tasks
                 .runner
@@ -4100,6 +4141,14 @@ impl App {
             PromptCompletion::WorkspaceSymbolPending => {
                 self.status("Workspace symbol search is already pending");
             }
+            PromptCompletion::StartAgent(goal) => {
+                self.ui.mode = UiMode::Edit;
+                self.start_agent_run(goal);
+            }
+            PromptCompletion::Dismiss => {
+                self.ui.mode = UiMode::Edit;
+                self.ui.status = None;
+            }
         }
     }
 
@@ -4404,6 +4453,9 @@ impl App {
             ExCommand::Help => self.ui.mode = UiMode::Help,
             ExCommand::Stickies => self.open_stickies(),
             ExCommand::NewSticky => self.create_new_sticky(),
+            ExCommand::AgentRun => self.begin_agent_run_prompt(),
+            ExCommand::AgentActivity => self.open_agent_activity(),
+            ExCommand::AgentCancel => self.cancel_agent_run(),
         }
     }
 
@@ -10177,6 +10229,197 @@ impl App {
             }
             Err(error) => self.error(error.to_string()),
         }
+    }
+
+    fn begin_agent_run_prompt(&mut self) {
+        if self.agent.job.is_some() && self.agent.coordinator.is_active() {
+            self.status("Agent already running — Esc w A for activity, Esc w x to cancel");
+            return;
+        }
+        if !self.config.agent.use_fake && !self.config.agent.argv.is_empty() {
+            self.status(
+                "ACP process agent is configured but not wired yet; set agent.use_fake = true for the demo loop",
+            );
+        }
+        self.begin_prompt(PromptFlow::AgentGoal);
+        if let UiMode::Prompt(prompt) = &mut self.ui.mode {
+            prompt.notice = Some(
+                "Enter starts a plan-first fake agent run · Esc cancels · review via Esc w A"
+                    .to_owned(),
+            );
+        }
+    }
+
+    fn open_agent_activity(&mut self) {
+        self.begin_prompt(PromptFlow::AgentActivity);
+        if let UiMode::Prompt(prompt) = &mut self.ui.mode {
+            let label = crate::agent_runtime::run_state_label(self.agent.coordinator.run_state());
+            prompt.notice = Some(format!(
+                "{label} · Enter dismisses · Esc w x cancels an active run"
+            ));
+        }
+    }
+
+    fn start_agent_run(&mut self, goal: String) {
+        if let Err(error) = crate::agent_runtime::validate_goal_input(&goal) {
+            self.error(error);
+            return;
+        }
+        if self.agent.job.is_some() && self.agent.coordinator.is_active() {
+            self.error("Agent already running; cancel with Esc w x first");
+            return;
+        }
+        if !self.config.agent.use_fake {
+            self.error(
+                "Real ACP agents are not enabled in this build path; set agent.use_fake = true in ~/.config/wscrpt/config.toml",
+            );
+            return;
+        }
+
+        let session = crate::agent_runtime::new_session_id();
+        let workspace_id = self.agent.coordinator.workspace_id();
+        let packet = match crate::agent_runtime::work_packet_for_goal(
+            workspace_id,
+            self.workspace_root(),
+            goal.trim(),
+        ) {
+            Ok(packet) => packet,
+            Err(error) => {
+                self.error(error);
+                return;
+            }
+        };
+        let generation = match self
+            .agent
+            .coordinator
+            .start_run(session.clone(), packet, true)
+        {
+            Ok(generation) => generation,
+            Err(error) => {
+                self.error(error.to_string());
+                return;
+            }
+        };
+        let (job, port) = crate::agent_runtime::spawn_fake_agent(
+            workspace_id,
+            session,
+            generation,
+            crate::agent::FakeAgent::happy_path_edit(),
+        );
+        self.agent.job = Some(job);
+        self.agent.port = Some(port);
+        self.agent.last_summary = Some("agent started (fake plan-first loop)".to_owned());
+        self.status("Agent run started — Esc w A for receipt, Esc w x to cancel");
+    }
+
+    fn cancel_agent_run(&mut self) {
+        if let Some(job) = &self.agent.job {
+            job.cancel();
+        }
+        let cancelled = self.agent.coordinator.cancel_run();
+        self.agent.job = None;
+        self.agent.port = None;
+        if cancelled.is_some() {
+            self.agent.last_summary = Some("agent cancelled".to_owned());
+            self.status("Agent cancelled");
+        } else {
+            self.status("No active agent run");
+        }
+    }
+
+    fn poll_agent_events(&mut self) -> bool {
+        let Some(port) = &self.agent.port else {
+            return false;
+        };
+        let mut batch = Vec::new();
+        loop {
+            match port.try_recv() {
+                Ok(event) => batch.push(event),
+                Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    batch.push(crate::agent_runtime::AgentJobEvent::Finished {
+                        cancelled: false,
+                        error: Some("Agent worker disconnected".to_owned()),
+                    });
+                    break;
+                }
+            }
+        }
+        if batch.is_empty() {
+            return false;
+        }
+
+        let mut redraw = false;
+        let mut finished = false;
+        let mut finish_message = None;
+        let mut refresh_activity = false;
+        for event in batch {
+            match event {
+                crate::agent_runtime::AgentJobEvent::Event(event) => {
+                    let summary = event.summary.clone();
+                    let kind = event.kind;
+                    match self.agent.coordinator.admit(event) {
+                        Ok(outcome) => {
+                            self.agent.last_summary = Some(summary.clone());
+                            if kind == crate::agent_contract::AgentEventKind::ReviewReady
+                                || outcome.run_state == crate::agent_contract::AgentRunState::Review
+                            {
+                                self.status(format!(
+                                    "AGENT REVIEW: {summary} — Esc v s status · Esc v D diffs · Esc w A receipt"
+                                ));
+                            } else {
+                                let label =
+                                    crate::agent_runtime::run_state_label(outcome.run_state);
+                                self.status(format!("{label}: {summary}"));
+                            }
+                            refresh_activity = matches!(
+                                self.ui.mode,
+                                UiMode::Prompt(Prompt {
+                                    kind: PromptFlow::AgentActivity,
+                                    ..
+                                })
+                            );
+                            redraw = true;
+                        }
+                        Err(error) => {
+                            self.error(format!("agent event refused: {error}"));
+                            redraw = true;
+                        }
+                    }
+                }
+                crate::agent_runtime::AgentJobEvent::Notice(message) => {
+                    self.status(message);
+                    redraw = true;
+                }
+                crate::agent_runtime::AgentJobEvent::Finished { cancelled, error } => {
+                    finished = true;
+                    finish_message = Some(if cancelled {
+                        "Agent finished (cancelled)".to_owned()
+                    } else if let Some(error) = error {
+                        format!("Agent finished with error: {error}")
+                    } else {
+                        format!(
+                            "Agent finished — {} — Esc w A receipt · Esc v s Git",
+                            crate::agent_runtime::run_state_label(
+                                self.agent.coordinator.run_state()
+                            )
+                        )
+                    });
+                    redraw = true;
+                }
+            }
+        }
+        if refresh_activity {
+            self.refresh_prompt_candidates();
+        }
+        if finished {
+            self.agent.job = None;
+            self.agent.port = None;
+            if let Some(message) = finish_message {
+                self.status(message);
+            }
+        }
+        redraw
     }
 
     fn navigate_bookmark(&mut self, forward: bool) {

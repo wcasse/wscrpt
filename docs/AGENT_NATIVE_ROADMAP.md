@@ -233,8 +233,15 @@ recovery from truncated/invalid metadata.
 
 ### W2 — one agent, one packet
 
-Implement one ACP agent, one fallback adapter, approvals, cancellation, and
-review handoff to existing surfaces.
+**Partial (fake path shipped):** Work-packet start, cancellation, activity
+receipt overlay, and review handoff *messaging* to existing Git surfaces.
+UX deliberately mirrors Grok Build's agentic terminal loop (plan-first receipts,
+Needs You / Review states, Esc-driven controls for iPad SSH). Default runtime is
+the deterministic fake agent (`agent.use_fake = true`).
+
+**Still open for W2 complete:** live ACP client for `grok agent stdio` (or peer),
+permission prompts as Needs You approvals, dirty-tree protection, process/PTY
+restore, and a real useful human-reviewed edit run.
 
 Gate: dirty-tree protection, exact authority, process/PTY restoration, bounded
 output, crash recovery, and a real useful run reviewed by a human.

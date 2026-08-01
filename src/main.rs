@@ -31,6 +31,13 @@ osc52_copy = true
 # When true, Save requests LSP document formatting before writing to disk.
 format_on_save = false
 
+# Host-local coding agent (user global only). Fake loop is the safe default
+# (Grok Build–style plan → work → review receipts without a live process).
+# Real ACP (e.g. grok agent stdio) is reserved for a later wiring pass.
+[agent]
+use_fake = true
+# argv = ["grok", "agent", "stdio"]
+
 # Language servers are launched only from this user-owned global config.
 # `wscrpt --health` reports well-known servers found on PATH; it never auto-enables
 # them. Uncomment an entry only after installing and choosing the executable.

@@ -56,6 +56,9 @@ pub enum ExCommand {
     Help,
     Stickies,
     NewSticky,
+    AgentRun,
+    AgentActivity,
+    AgentCancel,
 }
 
 pub fn parse(input: &str) -> Result<ExCommand, String> {
@@ -199,6 +202,13 @@ pub fn parse(input: &str) -> Result<ExCommand, String> {
         }
         "new-sticky" | "sticky-new" | "note-new" | "new-note" => {
             no_argument(argument, ExCommand::NewSticky)
+        }
+        "agent" | "agent-run" | "run-agent" => no_argument(argument, ExCommand::AgentRun),
+        "agent-activity" | "agent-status" | "agent-receipt" => {
+            no_argument(argument, ExCommand::AgentActivity)
+        }
+        "agent-cancel" | "cancel-agent" | "stop-agent" => {
+            no_argument(argument, ExCommand::AgentCancel)
         }
         _ => Err(format!("unknown command: {name}")),
     }

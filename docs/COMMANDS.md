@@ -82,6 +82,9 @@ Enter the no-timeout action layer with `Esc` or `Ctrl-K`, then type the listed s
 | `Esc w r` | `workspace.recovery` | Recovery Journals |
 | `Esc w k` | `workspace.stickies` | Stickies |
 | `Esc w K` | `workspace.new-sticky` | New Sticky |
+| `Esc w a` | `workspace.agent-run` | Agent Run |
+| `Esc w A` | `workspace.agent-activity` | Agent Activity |
+| `Esc w x` | `workspace.agent-cancel` | Cancel Agent |
 
 ## Code
 

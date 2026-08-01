@@ -20,7 +20,29 @@ pub struct Config {
     /// When true, Save requests LSP document formatting before writing disk.
     /// Formatting remains explicit (`Esc c f`) when this is false.
     pub format_on_save: bool,
+    /// Host-local coding agent (user global only; never from project files).
+    pub agent: AgentConfig,
     pub language_servers: Vec<LanguageServerConfig>,
+}
+
+/// User-global agent launcher. Project trees cannot authorize executables.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct AgentConfig {
+    /// Prefer the deterministic fake agent (safe default for demos and CI).
+    pub use_fake: bool,
+    /// Optional ACP/process argv for a real agent (for example Grok Build:
+    /// `["grok", "agent", "stdio"]`). Ignored while `use_fake` is true.
+    pub argv: Vec<String>,
+}
+
+impl Default for AgentConfig {
+    fn default() -> Self {
+        Self {
+            use_fake: true,
+            argv: Vec::new(),
+        }
+    }
 }
 
 /// A language server explicitly authorized by the user's global config.
@@ -46,6 +68,7 @@ impl Default for Config {
             scroll_margin: 3,
             osc52_copy: true,
             format_on_save: false,
+            agent: AgentConfig::default(),
             language_servers: Vec::new(),
         }
     }
@@ -72,8 +95,31 @@ impl Config {
             return Err(format!("{source_name}: tab_width must be 1 through 16"));
         }
         config.scroll_margin = config.scroll_margin.min(20);
+        config.validate_agent(source_name)?;
         config.validate_language_servers(source_name)?;
         Ok(config)
+    }
+
+    fn validate_agent(&self, source_name: &str) -> Result<(), String> {
+        const MAX_AGENT_ARGV: usize = 64;
+        if self.agent.argv.len() > MAX_AGENT_ARGV {
+            return Err(format!(
+                "{source_name}: agent.argv is limited to {MAX_AGENT_ARGV} elements"
+            ));
+        }
+        for (index, part) in self.agent.argv.iter().enumerate() {
+            if part.is_empty() || part.chars().any(char::is_control) {
+                return Err(format!(
+                    "{source_name}: agent.argv[{index}] must be non-empty without controls"
+                ));
+            }
+        }
+        if !self.agent.use_fake && self.agent.argv.is_empty() {
+            return Err(format!(
+                "{source_name}: agent.use_fake is false but agent.argv is empty"
+            ));
+        }
+        Ok(())
     }
 
     pub fn language_server_for(&self, path: &Path) -> Option<&LanguageServerConfig> {

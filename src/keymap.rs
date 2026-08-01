@@ -239,6 +239,9 @@ pub enum Action {
     Recovery,
     Stickies,
     NewSticky,
+    AgentRun,
+    AgentActivity,
+    AgentCancel,
     Completion,
     Definition,
     References,
@@ -351,6 +354,9 @@ impl Action {
         Self::Recovery,
         Self::Stickies,
         Self::NewSticky,
+        Self::AgentRun,
+        Self::AgentActivity,
+        Self::AgentCancel,
         Self::Completion,
         Self::Definition,
         Self::References,
@@ -1007,6 +1013,30 @@ pub static COMMANDS: &[Command] = &[
         ["notes", "sticky", "memo", "create"]
     ),
     command!(
+        AgentRun,
+        "workspace.agent-run",
+        "Agent Run",
+        Workspace,
+        prefixed('w', 'a'),
+        ["agent", "ai", "plan", "grok", "packet"]
+    ),
+    command!(
+        AgentActivity,
+        "workspace.agent-activity",
+        "Agent Activity",
+        Workspace,
+        prefixed('w', 'A'),
+        ["agent", "receipt", "status", "review"]
+    ),
+    command!(
+        AgentCancel,
+        "workspace.agent-cancel",
+        "Cancel Agent",
+        Workspace,
+        prefixed('w', 'x'),
+        ["agent", "stop", "abort", "cancel"]
+    ),
+    command!(
         Completion,
         "code.completion",
         "Completion",
@@ -1398,6 +1428,9 @@ fn hint_actions(prefix: PrefixState) -> &'static [Action] {
             Action::Recovery,
             Action::Stickies,
             Action::NewSticky,
+            Action::AgentRun,
+            Action::AgentActivity,
+            Action::AgentCancel,
         ],
         PrefixState::Code => &[
             Action::Completion,
@@ -1756,6 +1789,9 @@ mod tests {
             (prefixed('w', 'r'), Action::Recovery),
             (prefixed('w', 'k'), Action::Stickies),
             (prefixed('w', 'K'), Action::NewSticky),
+            (prefixed('w', 'a'), Action::AgentRun),
+            (prefixed('w', 'A'), Action::AgentActivity),
+            (prefixed('w', 'x'), Action::AgentCancel),
             (prefixed('c', 'c'), Action::Completion),
             (prefixed('c', 'd'), Action::Definition),
             (prefixed('c', 'r'), Action::References),
