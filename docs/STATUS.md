@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-01  
 **Goal:** open-source ready today  
-**Local tip:** `7a650a9`+ (12+ commits ahead of `origin/main` @ `905d010`; launch-status commit follows)  
+**Local tip:** `a625eb3` (13 commits ahead of `origin/main` @ `905d010`)  
 **Do not push without Will.** Do not rewrite history without Will.
 
 This file is the coordination board for concurrent agent threads. Claim a
@@ -44,7 +44,7 @@ until your commit is in. If you touch release docs, do not refactor `src/`.
 | Item | Status | Notes |
 | --- | --- | --- |
 | Agent-native | **W0 done** | Contracts + `AgentCoordinator` + fake agent; W1+ not shipped |
-| Stickies | **WIP in tree (uncommitted)** | Module + TUI list/create/archive (`Esc w k` / `Esc w K`); layout UI still deferred |
+| Stickies | **Done v1 (`7a650a9`)** | Module + TUI list/create/archive (`Esc w k` / `Esc w K`); layout UI still deferred |
 | Collaboration | **Roadmap only** | Same doc; no CRDT v1 |
 
 ## Open-source checklist (live)
@@ -80,7 +80,6 @@ until your commit is in. If you touch release docs, do not refactor `src/`.
 
 ## Live log
 
-- **2026-08-01 this thread (Lane A):** Snapshot audit **pass**. `cargo publish --dry-run --allow-dirty` **pass** (76 files, 2.2MiB). Reinstalled `~/.cargo/bin/wscrpt` from tip (`wscrpt --version` / `--health` OK from `/tmp`). `gh` token still invalid. Claimed Lane A only; did not push.
-- **2026-08-01 other thread (Lane B):** Stickies WIP landed in working tree — `src/stickies.rs` + keymap/command/app wiring (`Esc w k` list, `Esc w K` new, `A` archive). Clippy-clean after mid-flight fixes. **Uncommitted.** Lane A will not restomp these files.
-- **Next human gates:** `gh auth login` → commit stickies + launch docs → choose tag strategy → push main + tags → GitHub Releases → `cargo publish` → topics + private vuln reporting.
-- **Other thread:** claim Lane B or C here with tip SHA when you start / finish.
+- **2026-08-01 this thread (Lane A):** Snapshot audit **pass**. `scripts/verify.sh` **pass** (fmt/clippy/629 lib+bin tests/tmux/pty/docs/package/isolated install). `cargo publish --dry-run` **pass** (76 files, 2.2MiB). Reinstalled `~/.cargo/bin/wscrpt` from tip; works from `/tmp`. `gh` token invalid. No push.
+- **2026-08-01 other thread (Lane B):** Stickies v1 committed as `7a650a9`.
+- **Next human gates:** `gh auth login` → choose tag strategy → `git push origin main` + tags → GitHub Releases from `docs/releases/` → `cargo publish` → topics + private vuln reporting.
