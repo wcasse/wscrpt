@@ -470,6 +470,45 @@ impl FakeAgent {
         Self { steps }
     }
 
+    /// Fan-out script over open checklist item texts (workflow S2).
+    pub fn checklist_fanout(items: &[String], sticky_title: Option<&str>) -> Self {
+        let mut steps = Vec::new();
+        steps.push(FakeStep::state(
+            AgentRunState::Working,
+            format!("checklist fan-out ({} items)", items.len()),
+        ));
+        if let Some(title) = sticky_title.filter(|t| !t.trim().is_empty()) {
+            let mut summary = format!("sticky brief: {title}");
+            if summary.len() > 200 {
+                summary.truncate(197);
+                summary.push('…');
+            }
+            steps.push(FakeStep::notice(summary));
+        }
+        let mut plan = String::from("open checklist:\n");
+        for (i, item) in items.iter().enumerate() {
+            plan.push_str(&format!("{}. {item}\n", i + 1));
+        }
+        if plan.len() > 400 {
+            plan.truncate(397);
+            plan.push('…');
+        }
+        steps.push(FakeStep::plan(plan));
+        for item in items {
+            let mut summary = format!("checklist item done: {item}");
+            if summary.len() > 200 {
+                summary.truncate(197);
+                summary.push('…');
+            }
+            steps.push(FakeStep::notice(summary));
+        }
+        steps.push(FakeStep::check(true, "checklist items processed"));
+        steps.push(FakeStep::review_ready(
+            "checklist complete — Esc w Y apply checks to sticky",
+        ));
+        Self { steps }
+    }
+
     pub fn steps(&self) -> &[FakeStep] {
         &self.steps
     }

@@ -846,6 +846,16 @@ struct AgentUiState {
     last_summary: Option<String>,
     /// Bottom dashboard strip (toggle with Esc w D), inspired by Grok Build.
     dashboard_visible: bool,
+    /// After a checklist fan-out reaches Review, offer write-back to the sticky.
+    pending_checklist: Option<PendingChecklistApply>,
+}
+
+/// Write-back of completed checklist lines once the human confirms (Esc w Y).
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PendingChecklistApply {
+    sticky_id: String,
+    line_indices: Vec<usize>,
+    generation: u64,
 }
 
 /// One display row in the bottom agent dashboard.
@@ -1006,6 +1016,7 @@ impl App {
                 port: None,
                 last_summary: None,
                 dashboard_visible: false,
+                pending_checklist: None,
             },
             sticky_pad: crate::stickies::StickyPad::default(),
             lsp: LspState {
@@ -3074,6 +3085,8 @@ impl App {
             Action::AgentRun => self.begin_agent_run_prompt(),
             Action::AgentCancel => self.cancel_agent_run(),
             Action::AgentDashboard => self.toggle_agent_dashboard(),
+            Action::AgentChecklist => self.start_sticky_checklist_run(),
+            Action::AgentApplyChecklist => self.apply_pending_checklist(),
             Action::GlobalSearch if self.project.status.is_pending() => {
                 self.status("Workspace is still indexing; project search will be available shortly")
             }
@@ -4494,6 +4507,8 @@ impl App {
             ExCommand::AgentRun => self.begin_agent_run_prompt(),
             ExCommand::AgentCancel => self.cancel_agent_run(),
             ExCommand::AgentDashboard => self.toggle_agent_dashboard(),
+            ExCommand::AgentChecklist => self.start_sticky_checklist_run(),
+            ExCommand::AgentApplyChecklist => self.apply_pending_checklist(),
         }
     }
 
@@ -10469,6 +10484,13 @@ impl App {
             emphasis: AgentDashboardEmphasis::Title,
         });
 
+        if self.agent.pending_checklist.is_some() && lines.len() < visible_rows {
+            lines.push(AgentDashboardLine {
+                text: " write-back ready · Esc w Y apply checks to sticky ".to_owned(),
+                emphasis: AgentDashboardEmphasis::RunReview,
+            });
+        }
+
         if lines.len() >= visible_rows {
             return AgentDashboardView { lines };
         }
@@ -10674,6 +10696,193 @@ impl App {
         })
     }
 
+    /// S2: fan out fake agent work over open `- [ ]` lines on the sticky pad.
+    fn start_sticky_checklist_run(&mut self) {
+        if self.agent.job.is_some() && self.agent.coordinator.is_active() {
+            self.error("Agent already running; cancel with Esc w x first");
+            return;
+        }
+        if !self.sticky_pad.visible || self.sticky_pad.note.is_none() {
+            self.error("Open a sticky pad note first (Esc w k / Esc w K)");
+            return;
+        }
+        if let Ok(library) = self.sticky_library() {
+            let _ = self.sticky_pad.save_if_dirty(&library);
+        }
+        let note = match self.sticky_pad.note.as_ref() {
+            Some(note) => note.clone(),
+            None => return,
+        };
+        let open = crate::stickies::open_checklist_items(
+            &note.body_markdown,
+            crate::stickies::MAX_CHECKLIST_FANOUT,
+        );
+        if open.is_empty() {
+            self.status("No open checklist items (- [ ]) on this sticky");
+            return;
+        }
+        let total_open = crate::stickies::parse_checklist(&note.body_markdown)
+            .into_iter()
+            .filter(|item| !item.done)
+            .count();
+        let capped = open.len() < total_open;
+        let item_texts: Vec<String> = open
+            .iter()
+            .map(|item| {
+                if item.text.is_empty() {
+                    "(empty item)".to_owned()
+                } else {
+                    item.text.clone()
+                }
+            })
+            .collect();
+        let line_indices: Vec<usize> = open.iter().map(|item| item.line_index).collect();
+        let goal = format!(
+            "checklist fan-out: {} open item(s) from sticky {}",
+            item_texts.len(),
+            note.title
+        );
+        let sticky_attach = crate::agent_runtime::StickyAttach {
+            id: note.id.clone(),
+            title: note.title.clone(),
+            body: note.body_markdown.clone(),
+        };
+        let session = crate::agent_runtime::new_session_id();
+        let workspace_id = self.agent.coordinator.workspace_id();
+        let packet = match crate::agent_runtime::work_packet_for_goal_with_sticky(
+            workspace_id,
+            self.workspace_root(),
+            goal,
+            Some(sticky_attach),
+        ) {
+            Ok(packet) => packet,
+            Err(error) => {
+                self.error(error);
+                return;
+            }
+        };
+        let generation = match self
+            .agent
+            .coordinator
+            .start_run(session.clone(), packet, true)
+        {
+            Ok(generation) => generation,
+            Err(error) => {
+                self.error(error.to_string());
+                return;
+            }
+        };
+        self.agent.pending_checklist = Some(PendingChecklistApply {
+            sticky_id: note.id.clone(),
+            line_indices,
+            generation,
+        });
+        let fake = crate::agent::FakeAgent::checklist_fanout(&item_texts, Some(&note.title));
+        let (job, port) =
+            crate::agent_runtime::spawn_fake_agent(workspace_id, session, generation, fake);
+        self.agent.job = Some(job);
+        self.agent.port = Some(port);
+        self.agent.last_summary = Some(format!("checklist fan-out {} item(s)", item_texts.len()));
+        if !self.agent.dashboard_visible {
+            self.agent.dashboard_visible = true;
+            self.ui.full_redraw = true;
+        }
+        let mut status = format!(
+            "Checklist run: {} item(s) — Esc w D watch · after Review Esc w Y apply",
+            item_texts.len()
+        );
+        if capped {
+            status.push_str(&format!(
+                " · capped at {}",
+                crate::stickies::MAX_CHECKLIST_FANOUT
+            ));
+        }
+        self.status(status);
+    }
+
+    /// Apply pending checklist checkmarks to the sticky after human confirm.
+    fn apply_pending_checklist(&mut self) {
+        let Some(pending) = self.agent.pending_checklist.clone() else {
+            self.status("No checklist write-back pending — run Esc w C first");
+            return;
+        };
+        let state = self.agent.coordinator.run_state();
+        let generation_matches = self.agent.coordinator.generation() == pending.generation;
+        let review_ok = matches!(
+            state,
+            crate::agent_contract::AgentRunState::Review
+                | crate::agent_contract::AgentRunState::Closed
+        );
+        if !review_ok || !generation_matches {
+            self.error("Wait until the checklist run reaches REVIEW, then Esc w Y");
+            return;
+        }
+
+        let library = match self.sticky_library() {
+            Ok(library) => library,
+            Err(error) => {
+                self.error(error);
+                return;
+            }
+        };
+
+        let applied = if self
+            .sticky_pad
+            .note
+            .as_ref()
+            .is_some_and(|n| n.id == pending.sticky_id)
+        {
+            if let Some(note) = self.sticky_pad.note.as_mut() {
+                note.body_markdown = crate::stickies::apply_checklist_done(
+                    &note.body_markdown,
+                    &pending.line_indices,
+                );
+                note.updated_at_unix_ms = crate::agent_contract::unix_now_ms();
+                self.sticky_pad.dirty = true;
+                match self.sticky_pad.save_if_dirty(&library) {
+                    Ok(()) => true,
+                    Err(error) => {
+                        self.error(error.to_string());
+                        return;
+                    }
+                }
+            } else {
+                false
+            }
+        } else {
+            match library.load(&pending.sticky_id) {
+                Ok(mut note) => {
+                    note.body_markdown = crate::stickies::apply_checklist_done(
+                        &note.body_markdown,
+                        &pending.line_indices,
+                    );
+                    note.updated_at_unix_ms = crate::agent_contract::unix_now_ms();
+                    match library.save(&note) {
+                        Ok(_) => true,
+                        Err(error) => {
+                            self.error(error.to_string());
+                            return;
+                        }
+                    }
+                }
+                Err(error) => {
+                    self.error(error.to_string());
+                    return;
+                }
+            }
+        };
+
+        if applied {
+            let n = pending.line_indices.len();
+            self.agent.pending_checklist = None;
+            self.ui.full_redraw = true;
+            self.status(format!(
+                "Applied {n} checklist checkmark(s) to sticky {}",
+                pending.sticky_id
+            ));
+        }
+    }
+
     fn cancel_agent_run(&mut self) {
         if let Some(job) = &self.agent.job {
             job.cancel();
@@ -10681,6 +10890,7 @@ impl App {
         let cancelled = self.agent.coordinator.cancel_run();
         self.agent.job = None;
         self.agent.port = None;
+        self.agent.pending_checklist = None;
         if cancelled.is_some() {
             self.agent.last_summary = Some("agent cancelled".to_owned());
             self.status("Agent cancelled");

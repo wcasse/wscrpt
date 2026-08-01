@@ -242,6 +242,8 @@ pub enum Action {
     AgentRun,
     AgentCancel,
     AgentDashboard,
+    AgentChecklist,
+    AgentApplyChecklist,
     Completion,
     Definition,
     References,
@@ -357,6 +359,8 @@ impl Action {
         Self::AgentRun,
         Self::AgentCancel,
         Self::AgentDashboard,
+        Self::AgentChecklist,
+        Self::AgentApplyChecklist,
         Self::Completion,
         Self::Definition,
         Self::References,
@@ -1048,6 +1052,22 @@ pub static COMMANDS: &[Command] = &[
         ]
     ),
     command!(
+        AgentChecklist,
+        "workspace.agent-checklist",
+        "Run Sticky Checklist",
+        Workspace,
+        prefixed('w', 'C'),
+        ["agent", "checklist", "todo", "sticky", "fanout", "tasks"]
+    ),
+    command!(
+        AgentApplyChecklist,
+        "workspace.agent-apply-checklist",
+        "Apply Checklist to Sticky",
+        Workspace,
+        prefixed('w', 'Y'),
+        ["agent", "checklist", "apply", "sticky", "confirm"]
+    ),
+    command!(
         Completion,
         "code.completion",
         "Completion",
@@ -1442,6 +1462,8 @@ fn hint_actions(prefix: PrefixState) -> &'static [Action] {
             Action::AgentRun,
             Action::AgentCancel,
             Action::AgentDashboard,
+            Action::AgentChecklist,
+            Action::AgentApplyChecklist,
         ],
         PrefixState::Code => &[
             Action::Completion,
@@ -1803,6 +1825,8 @@ mod tests {
             (prefixed('w', 'a'), Action::AgentRun),
             (prefixed('w', 'x'), Action::AgentCancel),
             (prefixed('w', 'D'), Action::AgentDashboard),
+            (prefixed('w', 'C'), Action::AgentChecklist),
+            (prefixed('w', 'Y'), Action::AgentApplyChecklist),
             (prefixed('c', 'c'), Action::Completion),
             (prefixed('c', 'd'), Action::Definition),
             (prefixed('c', 'r'), Action::References),

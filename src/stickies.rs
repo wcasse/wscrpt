@@ -914,6 +914,109 @@ pub fn anchor_for_open_file(workspace_root: &Path, path: Option<&Path>) -> Stick
 }
 
 // ---------------------------------------------------------------------------
+// Checklist parsing (workflow S2 — fan-out over open tasks)
+// ---------------------------------------------------------------------------
+
+/// Maximum open checklist items processed in one agent fan-out run.
+pub const MAX_CHECKLIST_FANOUT: usize = 6;
+
+/// One Markdown task-list line in a sticky body.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ChecklistItem {
+    /// 0-based line index in the body (split on `\n`).
+    pub line_index: usize,
+    /// Full original line text (without trailing `\n`).
+    pub line: String,
+    /// Text after the checkbox marker, trimmed.
+    pub text: String,
+    pub done: bool,
+}
+
+/// Parse GitHub-style task list lines: `- [ ]` / `- [x]` / `* [ ]` (case-insensitive x).
+pub fn parse_checklist(body: &str) -> Vec<ChecklistItem> {
+    let mut items = Vec::new();
+    for (line_index, line) in body.lines().enumerate() {
+        let trimmed = line.trim_start();
+        let Some((done, rest)) = strip_checkbox_prefix(trimmed) else {
+            continue;
+        };
+        items.push(ChecklistItem {
+            line_index,
+            line: line.to_owned(),
+            text: rest.trim().to_owned(),
+            done,
+        });
+    }
+    items
+}
+
+/// Open (unchecked) items only, capped for fan-out.
+pub fn open_checklist_items(body: &str, cap: usize) -> Vec<ChecklistItem> {
+    parse_checklist(body)
+        .into_iter()
+        .filter(|item| !item.done)
+        .take(cap)
+        .collect()
+}
+
+/// Mark the given line indices as checked (`[x]`). Other lines unchanged.
+pub fn apply_checklist_done(body: &str, done_line_indices: &[usize]) -> String {
+    let mut done_set: std::collections::BTreeSet<usize> =
+        done_line_indices.iter().copied().collect();
+    let mut out_lines: Vec<String> = Vec::new();
+    for (index, line) in body.lines().enumerate() {
+        if done_set.remove(&index) {
+            out_lines.push(mark_line_checked(line));
+        } else {
+            out_lines.push(line.to_owned());
+        }
+    }
+    let mut result = out_lines.join("\n");
+    if body.ends_with('\n') {
+        result.push('\n');
+    }
+    result
+}
+
+fn strip_checkbox_prefix(trimmed: &str) -> Option<(bool, &str)> {
+    let bytes = trimmed.as_bytes();
+    if bytes.len() < 5 {
+        return None;
+    }
+    let bullet = bytes[0];
+    if bullet != b'-' && bullet != b'*' {
+        return None;
+    }
+    if bytes[1] != b' ' || bytes[2] != b'[' || bytes[4] != b']' {
+        return None;
+    }
+    let mark = bytes[3];
+    let done = mark == b'x' || mark == b'X';
+    if !done && mark != b' ' {
+        return None;
+    }
+    let rest = trimmed.get(5..).unwrap_or("");
+    let rest = rest.strip_prefix(' ').unwrap_or(rest);
+    Some((done, rest))
+}
+
+fn mark_line_checked(line: &str) -> String {
+    let leading = line.len() - line.trim_start().len();
+    let indent = &line[..leading];
+    let trimmed = line.trim_start();
+    if let Some((_, rest)) = strip_checkbox_prefix(trimmed) {
+        let bullet = if trimmed.starts_with('*') { '*' } else { '-' };
+        if rest.is_empty() {
+            format!("{indent}{bullet} [x]")
+        } else {
+            format!("{indent}{bullet} [x] {rest}")
+        }
+    } else {
+        line.to_owned()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Floating pad (TUI subsystem)
 // ---------------------------------------------------------------------------
 
@@ -1612,5 +1715,22 @@ mod tests {
     fn truncated_front_matter_is_a_parse_error() {
         let err = decode_sticky_file("+++\nid = \"x\"\n").unwrap_err();
         assert!(err.contains("closing front matter"));
+    }
+
+    #[test]
+    fn checklist_parse_and_apply() {
+        let body = "notes\n- [ ] ship S2\n* [x] done already\n- [ ] wire fan-out\n";
+        let items = parse_checklist(body);
+        assert_eq!(items.len(), 3);
+        assert!(!items[0].done && items[0].text == "ship S2");
+        assert!(items[1].done);
+        assert_eq!(items[2].line_index, 3);
+        let open = open_checklist_items(body, 6);
+        assert_eq!(open.len(), 2);
+        let applied = apply_checklist_done(body, &[1, 3]);
+        assert!(applied.contains("- [x] ship S2"));
+        assert!(applied.contains("- [x] wire fan-out"));
+        assert!(applied.contains("* [x] done already"));
+        assert!(applied.ends_with('\n'));
     }
 }

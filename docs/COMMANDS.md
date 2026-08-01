@@ -85,6 +85,8 @@ Enter the no-timeout action layer with `Esc` or `Ctrl-K`, then type the listed s
 | `Esc w a` | `workspace.agent-run` | Agent Run |
 | `Esc w x` | `workspace.agent-cancel` | Cancel Agent |
 | `Esc w D` | `workspace.agent-dashboard` | Toggle Agents Dashboard |
+| `Esc w C` | `workspace.agent-checklist` | Run Sticky Checklist |
+| `Esc w Y` | `workspace.agent-apply-checklist` | Apply Checklist to Sticky |
 
 ## Code
 

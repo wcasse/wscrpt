@@ -162,6 +162,11 @@ to the work packet as `sticky_ids` / `sticky_brief`. The fake agent emits a
 the brief was loaded. Agents never receive stickies unless the user has them
 open (or later explicitly includes them).
 
+**Product (S2):** open Markdown task lines (`- [ ]` / `* [ ]`) on the active
+sticky can fan out via `Esc w C` (max 6). The fake agent plans and notices each
+item, then reaches Review. **Human confirm** `Esc w Y` rewrites those lines to
+`[x]` on the sticky — never auto-check.
+
 The TUI uses a top-right floating pad (not a second buffer). The native iPad app
 may use draggable/resizable SwiftUI cards above the stable terminal/player,
 without rebuilding or reparenting either UIKit surface.
