@@ -167,6 +167,15 @@ sticky can fan out via `Esc w C` (max 6). The fake agent plans and notices each
 item, then reaches Review. **Human confirm** `Esc w Y` rewrites those lines to
 `[x]` on the sticky — never auto-check.
 
+**Maintainer (S3):** Grok Build workflows live in `.grok/workflows/` (not the
+Rust crate package):
+
+- `sticky-pad-review` — parallel code review of pad UI/storage/checklist wiring
+- `sticky-anchor-audit` — inventory + hygiene notes for sticky paths/anchors
+
+Run from this repo in Grok Build: `/sticky-pad-review` or
+`/workflow sticky-anchor-audit` with optional `args.workspace`.
+
 The TUI uses a top-right floating pad (not a second buffer). The native iPad app
 may use draggable/resizable SwiftUI cards above the stable terminal/player,
 without rebuilding or reparenting either UIKit surface.

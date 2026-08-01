@@ -17,6 +17,7 @@ exclude = [
     "autoresearch/",
     "previewd/",
     "clients/",
+    ".grok/",
     "output/preview-phase0/",
     "docs/REMOTE_AGENT_PREVIEW_PHASE_0*",
     "scripts/verify-preview-phase0.sh",
