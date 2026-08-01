@@ -14,7 +14,10 @@ use crossterm::event::{
 use crate::clipboard::{Clipboard, CopyOutcome, osc52_config_for_route};
 use crate::command::{self, ExCommand};
 use crate::config::Config;
-use crate::git::{BranchHead, FileState, GitRepository};
+use crate::git::{
+    BranchHead, FileState, GitMutation, GitMutationResult, GitRepository,
+    MAX_GIT_COMMIT_MESSAGE_BYTES, StatusEntryKind, validate_commit_message,
+};
 use crate::keymap::{self, Action, Key, Keymap, Resolution};
 use crate::lsp::{DocumentSnapshot, DocumentVersion, LspPosition};
 use crate::lsp_client::{
@@ -313,6 +316,7 @@ enum PromptFlow {
     GitChanges,
     GitDiffPicker,
     GitCommitPicker,
+    GitCommitMessage,
     GoToLine,
     Recovery,
     GlobalSearch,
@@ -360,6 +364,7 @@ enum PromptCompletion {
     NewFile(String),
     RenameFile(String),
     SaveCopyAs(String),
+    CommitGit(String),
     GoToLine(String),
     SubmitWorkspaceSymbol(String),
     WorkspaceSymbolPending,
@@ -385,6 +390,7 @@ impl PromptFlow {
             Self::GitChanges => " git changes › ",
             Self::GitDiffPicker => " git diffs › ",
             Self::GitCommitPicker => " git commits › ",
+            Self::GitCommitMessage => " commit staged › ",
             Self::GoToLine => " line › ",
             Self::Recovery => " recovery (Enter restore · V view · D discard) › ",
             Self::GlobalSearch => " project search › ",
@@ -411,6 +417,7 @@ impl PromptFlow {
                 Some(("Workspace symbol", MAX_WORKSPACE_SYMBOL_QUERY_BYTES))
             }
             Self::WorkspaceTree => Some(("Workspace tree", MAX_WORKSPACE_TREE_QUERY_BYTES)),
+            Self::GitCommitMessage => Some(("Git commit message", MAX_GIT_COMMIT_MESSAGE_BYTES)),
             _ => None,
         }
     }
@@ -484,6 +491,7 @@ impl PromptFlow {
             Self::NewFilePath => PromptCompletion::NewFile(prompt.input.clone()),
             Self::RenameFilePath => PromptCompletion::RenameFile(prompt.input.clone()),
             Self::SaveCopyAsPath => PromptCompletion::SaveCopyAs(prompt.input.clone()),
+            Self::GitCommitMessage => PromptCompletion::CommitGit(prompt.input.clone()),
             Self::GoToLine => PromptCompletion::GoToLine(prompt.input.clone()),
             Self::WorkspaceSymbolQuery => {
                 PromptCompletion::SubmitWorkspaceSymbol(prompt.input.clone())
@@ -620,6 +628,7 @@ enum UiMode {
     Help,
     Confirm(ConfirmKind),
     TaskTrust(String),
+    GitTrust(GitMutation),
 }
 
 pub struct OverlayView<'a> {
@@ -736,13 +745,19 @@ impl ProjectState {
     }
 }
 
-/// Git state is deliberately snapshot-only. Mutating Git operations are not a
-/// supported editor workflow in 0.2.
+#[derive(Clone, Debug)]
+struct PendingGitMutation {
+    generation: u64,
+    mutation: GitMutation,
+}
+
+/// Git inspection state plus at most one trusted local mutation in flight.
 struct GitState {
     repository: Option<GitRepository>,
     branch: Option<String>,
     changes: usize,
     status: ServiceStatus,
+    pending: Option<PendingGitMutation>,
 }
 
 impl GitState {
@@ -982,6 +997,7 @@ impl App {
                 branch: None,
                 changes: 0,
                 status: ServiceStatus::Idle,
+                pending: None,
             },
             services: ServiceCoordinator::new(),
             services_started: false,
@@ -1645,6 +1661,7 @@ impl App {
             || self.ui.edit_transition.cue_until.is_some()
             || self.lsp.client.is_some()
             || self.tasks.is_running()
+            || self.git.pending.is_some()
             || self.project.search_worker.is_some()
                 && matches!(
                     self.ui.mode,
@@ -1915,7 +1932,7 @@ impl App {
             UiMode::Prompt(_) => "PROMPT",
             UiMode::Help => "HELP",
             UiMode::Confirm(_) => "CONFIRM",
-            UiMode::TaskTrust(_) => "TRUST",
+            UiMode::TaskTrust(_) | UiMode::GitTrust(_) => "TRUST",
         }
     }
 
@@ -1946,6 +1963,10 @@ impl App {
             }
             UiMode::TaskTrust(ref name) => format!(
                 " Task {name:?} may execute workspace code — V details   Y trust once & run   Esc cancel "
+            ),
+            UiMode::GitTrust(ref mutation) => format!(
+                " Git {} may execute repository filters/hooks — V details   Y trust once & run   Esc cancel ",
+                git_mutation_summary(mutation)
             ),
             UiMode::Prompt(_) => String::new(),
         }
@@ -2286,6 +2307,29 @@ impl App {
                     self.error(format!("Git status unavailable: {error}"));
                 }
             },
+            ServiceEvent::GitMutation { tag, result } => {
+                let _ = self.services.finish_git_mutation(tag.generation);
+                let requested = self.git.pending.take().and_then(|pending| {
+                    (pending.generation == tag.generation).then_some(pending.mutation)
+                });
+                if let Some(repository) = self.git.repository.as_ref() {
+                    let generation = self.services.start_git(repository.root().to_path_buf());
+                    self.git.status = ServiceStatus::Pending(generation);
+                }
+                match result {
+                    Ok(result) => self.status(format!(
+                        "{}; refreshing Git status",
+                        git_mutation_result_summary(&result)
+                    )),
+                    Err(error) => self.error(format!(
+                        "Git {} failed: {error}; refreshing Git status",
+                        requested
+                            .as_ref()
+                            .map(git_mutation_summary)
+                            .unwrap_or_else(|| "operation".to_owned())
+                    )),
+                }
+            }
             ServiceEvent::Recovery { mut snapshot, .. } => {
                 self.persistence.install_recovery(&mut snapshot);
                 if let Some(notice) = snapshot.notice {
@@ -2412,6 +2456,7 @@ impl App {
             }
             UiMode::Confirm(kind) => self.handle_confirm_key(kind, key),
             UiMode::TaskTrust(name) => self.handle_task_trust_key(name, key),
+            UiMode::GitTrust(mutation) => self.handle_git_trust_key(mutation, key),
             UiMode::Edit => {
                 let before = self.active_editor_intent();
                 self.handle_edit_key(key);
@@ -2788,6 +2833,18 @@ impl App {
         }
     }
 
+    fn handle_git_trust_key(&mut self, mutation: GitMutation, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => self.ui.mode = UiMode::Edit,
+            KeyCode::Char('v' | 'V') => {
+                self.ui.mode = UiMode::Edit;
+                self.open_git_mutation_details(&mutation);
+            }
+            KeyCode::Char('y' | 'Y') => self.start_git_mutation(mutation),
+            _ => {}
+        }
+    }
+
     fn execute_action(&mut self, action: Action) {
         // A new explicit user action supersedes any unanswered LSP UI intent.
         // Removing the app correlation prevents a late response from opening
@@ -2981,6 +3038,9 @@ impl App {
             Action::GitHead => self.open_git_head(),
             Action::GitBlameLine => self.open_git_blame_line(),
             Action::Branches => self.open_branch_view(),
+            Action::GitStageCurrent => self.request_git_path_mutation(true),
+            Action::GitUnstageCurrent => self.request_git_path_mutation(false),
+            Action::GitCommitStaged => self.request_git_commit(),
         }
     }
 
@@ -3983,6 +4043,15 @@ impl App {
                     Err(error) => self.error(error),
                 }
             }
+            PromptCompletion::CommitGit(message) => match validate_commit_message(&message) {
+                Ok(message) => {
+                    self.ui.mode = UiMode::GitTrust(GitMutation::CommitStaged {
+                        message: message.to_owned(),
+                    });
+                    self.ui.status = None;
+                }
+                Err(error) => self.error(error.to_string()),
+            },
             PromptCompletion::GoToLine(input) => match input.trim().parse::<usize>() {
                 Ok(line) if line > 0 => {
                     let origin = self.current_jump_location();
@@ -4043,7 +4112,7 @@ impl App {
                 self.dismiss_help();
                 self.ui.status = None;
             }
-            UiMode::Confirm(_) | UiMode::TaskTrust(_) => {
+            UiMode::Confirm(_) | UiMode::TaskTrust(_) | UiMode::GitTrust(_) => {
                 self.ui.mode = UiMode::Edit;
                 self.ui.quit_after_save = false;
                 self.ui.save_all_after_save_as = false;
@@ -4293,6 +4362,9 @@ impl App {
             ExCommand::GitCommitInfo(commit) => self.open_git_commit_info(&commit),
             ExCommand::GitBlameLine => self.open_git_blame_line(),
             ExCommand::GitBranches => self.open_branch_view(),
+            ExCommand::GitStageCurrent => self.request_git_path_mutation(true),
+            ExCommand::GitUnstageCurrent => self.request_git_path_mutation(false),
+            ExCommand::GitCommitStaged => self.request_git_commit(),
             ExCommand::LspLog => self.open_lsp_log(),
             ExCommand::LspRestart => self.restart_lsp(),
             ExCommand::KeymapReference => self.open_keymap_reference(),
@@ -9165,6 +9237,171 @@ impl App {
         self.status("Recent files opened as a read-only IDE view");
     }
 
+    fn request_git_path_mutation(&mut self, stage: bool) {
+        if self.git.pending.is_some() {
+            self.error("A Git operation is already running");
+            return;
+        }
+        let Some(repository) = self.git.repository.clone() else {
+            let message = self.git_unavailable_message();
+            self.error(message);
+            return;
+        };
+        let editor = self.workspace.active();
+        if editor.document.is_read_only() {
+            self.error("Open an editable file-backed buffer before changing the Git index");
+            return;
+        }
+        let Some(path) = editor.document.path().map(Path::to_path_buf) else {
+            self.error("Save this buffer before changing the Git index");
+            return;
+        };
+        if editor.document.is_modified() {
+            self.error("Save the current buffer first; Git would otherwise use the disk version");
+            return;
+        }
+        let relative = match repository.relative_path(&path) {
+            Ok(relative) => relative,
+            Err(error) => {
+                self.error(error.to_string());
+                return;
+            }
+        };
+        let file = match repository.status_path(&path) {
+            Ok(file) => file,
+            Err(error) => {
+                self.error(error.to_string());
+                return;
+            }
+        };
+        let Some(file) = file else {
+            self.status(if stage {
+                "Current file has no disk change to stage"
+            } else {
+                "Current file has no staged change"
+            });
+            return;
+        };
+        if file.kind == StatusEntryKind::Unmerged {
+            self.error("Unmerged paths must be resolved in the workspace shell");
+            return;
+        }
+        if file.submodule.is_submodule {
+            self.error("Submodule index changes must be handled in the workspace shell");
+            return;
+        }
+        let mutation = if stage {
+            if !file.has_worktree_change() {
+                self.status("Current file has no additional disk change to stage");
+                return;
+            }
+            GitMutation::StageCurrent(relative)
+        } else {
+            if !file.is_staged() {
+                self.status("Current file has no staged change");
+                return;
+            }
+            GitMutation::UnstageCurrent(relative)
+        };
+        self.ui.status = None;
+        self.ui.mode = UiMode::GitTrust(mutation);
+    }
+
+    fn request_git_commit(&mut self) {
+        if self.git.pending.is_some() {
+            self.error("A Git operation is already running");
+            return;
+        }
+        let Some(repository) = self.git.repository.clone() else {
+            let message = self.git_unavailable_message();
+            self.error(message);
+            return;
+        };
+        let status = match repository.status() {
+            Ok(status) => status,
+            Err(error) => {
+                self.error(error.to_string());
+                return;
+            }
+        };
+        if status
+            .files
+            .iter()
+            .any(|file| file.kind == StatusEntryKind::Unmerged)
+        {
+            self.error("Resolve unmerged paths before committing");
+            return;
+        }
+        if !status.files.iter().any(|file| file.is_staged()) {
+            self.status("Nothing is staged to commit");
+            return;
+        }
+        self.begin_prompt(PromptFlow::GitCommitMessage);
+    }
+
+    fn start_git_mutation(&mut self, mutation: GitMutation) {
+        if self.git.pending.is_some() {
+            self.error("A Git operation is already running");
+            return;
+        }
+        let Some(repository) = self.git.repository.clone() else {
+            let message = self.git_unavailable_message();
+            self.error(message);
+            return;
+        };
+        let summary = git_mutation_summary(&mutation);
+        match self
+            .services
+            .start_git_mutation(repository, mutation.clone())
+        {
+            Ok(generation) => {
+                self.git.pending = Some(PendingGitMutation {
+                    generation,
+                    mutation,
+                });
+                self.ui.mode = UiMode::Edit;
+                self.status(format!("Git {summary} running in background"));
+            }
+            Err(error) => self.error(error),
+        }
+    }
+
+    fn open_git_mutation_details(&mut self, mutation: &GitMutation) {
+        let Some(repository) = self.git.repository.as_ref() else {
+            let message = self.git_unavailable_message();
+            self.error(message);
+            return;
+        };
+        let mut text = String::from("Git Operation Trust\n\n");
+        text.push_str(&format!("Repository: {}\n", repository.root().display()));
+        match mutation {
+            GitMutation::StageCurrent(path) => {
+                text.push_str("Operation: stage current file\n");
+                text.push_str(&format!("Repository path: {}\n", path.display()));
+            }
+            GitMutation::UnstageCurrent(path) => {
+                text.push_str("Operation: unstage current file\n");
+                text.push_str(&format!("Repository path: {}\n", path.display()));
+            }
+            GitMutation::CommitStaged { message } => {
+                text.push_str("Operation: commit staged changes\n");
+                text.push_str(&format!("Exact message: {message:?}\n"));
+            }
+        }
+        text.push_str("\nSafety boundary\n");
+        text.push_str("───────────────\n");
+        text.push_str(
+            "- Uses one fixed Git subcommand with direct arguments; no shell is involved.\n",
+        );
+        text.push_str(
+            "- Staging may run repository clean filters; committing may run repository hooks.\n",
+        );
+        text.push_str("- Signed commits, branches, discard/reset/clean, and all network operations remain outside this workflow.\n");
+        text.push_str("- This view did not run Git. Close it and request the operation again to trust and run it.\n");
+        self.workspace.open_virtual("Git Operation Trust", &text);
+        self.status("Git operation details opened; no Git mutation ran");
+    }
+
     fn open_git_status(&mut self) {
         let Some(repository) = self.git.repository.clone() else {
             let message = self.git_unavailable_message();
@@ -9613,9 +9850,8 @@ impl App {
         text.push_str(&format!("Working diff bytes: {}\n", working.len()));
         text.push_str("\nNext steps\n");
         text.push_str("- `Esc v d` opens the staged/working patch for this file.\n");
-        text.push_str(
-            "- `:stage PATH` and `:unstage PATH` are the explicit index-mutating commands.\n",
-        );
+        text.push_str("- `Esc v S` / `:stage-current` stages this saved file after trust.\n");
+        text.push_str("- `Esc v U` / `:unstage-current` unstages this saved file after trust.\n");
 
         self.workspace.open_virtual("Git File Status", &text);
         self.status("Current file Git status opened as a read-only IDE view");
@@ -9658,8 +9894,8 @@ impl App {
                     Ok(_) => text.push_str("\nNo local branches listed.\n"),
                     Err(error) => text.push_str(&format!("\nCould not list branches: {error}\n")),
                 }
-                text.push_str("\nGit changes are intentionally read-only in wscrpt 0.2.\n");
-                text.push_str("Use `Esc t t` or `:terminal` for branch changes, pull, push, staging, and commits.\n");
+                text.push_str("\nTrusted local stage-current, unstage-current, and commit-staged are available in the editor.\n");
+                text.push_str("Use `Esc t t` or `:terminal` for branch changes, pull, push, discard/reset/clean, and other Git operations.\n");
                 self.workspace.open_virtual("Git Branch", &text);
                 self.status("Branch information opened");
             }
@@ -10675,6 +10911,24 @@ fn branch_label(head: &BranchHead) -> Option<String> {
     }
 }
 
+fn git_mutation_summary(mutation: &GitMutation) -> String {
+    match mutation {
+        GitMutation::StageCurrent(path) => format!("stage {}", path.display()),
+        GitMutation::UnstageCurrent(path) => format!("unstage {}", path.display()),
+        GitMutation::CommitStaged { message } => format!("commit staged as {message:?}"),
+    }
+}
+
+fn git_mutation_result_summary(result: &GitMutationResult) -> String {
+    match result {
+        GitMutationResult::Staged(path) => format!("Staged {}", path.display()),
+        GitMutationResult::Unstaged(path) => format!("Unstaged {}", path.display()),
+        GitMutationResult::Committed { message } => {
+            format!("Committed staged changes as {message:?}")
+        }
+    }
+}
+
 fn git_state_glyph(state: FileState) -> char {
     match state {
         FileState::Unmodified => '·',
@@ -10858,6 +11112,271 @@ mod tests {
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .output()
             .is_ok_and(|output| output.status.success())
+    }
+
+    fn git_mutation_app() -> Option<(tempfile::TempDir, PathBuf, App)> {
+        if !test_git_available() {
+            return None;
+        }
+        let directory = tempfile::tempdir().unwrap();
+        if !test_git(directory.path(), [OsStr::new("init"), OsStr::new("-q")]) {
+            return None;
+        }
+        assert!(test_git(
+            directory.path(),
+            [
+                OsStr::new("config"),
+                OsStr::new("user.name"),
+                OsStr::new("w app mutation test")
+            ]
+        ));
+        assert!(test_git(
+            directory.path(),
+            [
+                OsStr::new("config"),
+                OsStr::new("user.email"),
+                OsStr::new("w-app-mutation@example.invalid")
+            ]
+        ));
+        assert!(test_git(
+            directory.path(),
+            [
+                OsStr::new("config"),
+                OsStr::new("commit.gpgSign"),
+                OsStr::new("false")
+            ]
+        ));
+        let path = directory.path().join("current file.rs");
+        std::fs::write(&path, "pub fn base() {}\n").unwrap();
+        assert!(test_git(
+            directory.path(),
+            [
+                OsStr::new("add"),
+                OsStr::new("--"),
+                OsStr::new("current file.rs")
+            ]
+        ));
+        assert!(test_git(
+            directory.path(),
+            [OsStr::new("commit"), OsStr::new("-qm"), OsStr::new("base")]
+        ));
+        let workspace =
+            Workspace::from_path(Some(path.clone()), Some(directory.path().to_path_buf())).unwrap();
+        let app = App::new_ready_for_test(workspace, Config::default());
+        Some((directory, path, app))
+    }
+
+    fn poll_git_mutation_to_refresh(app: &mut App) {
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while app.git.pending.is_some() || app.git.status.is_pending() {
+            app.poll_services();
+            assert!(
+                Instant::now() < deadline,
+                "Git mutation or follow-up snapshot missed its deadline"
+            );
+            std::thread::yield_now();
+        }
+        app.poll_services();
+    }
+
+    #[test]
+    fn git_stage_and_unstage_require_trust_and_run_asynchronously() {
+        let Some((_directory, path, mut app)) = git_mutation_app() else {
+            return;
+        };
+        app.workspace
+            .active_mut()
+            .insert("// changed\n", EditKind::Insert)
+            .unwrap();
+        app.save_current();
+        assert!(!app.workspace.active().document.is_modified());
+
+        app.execute_action(Action::GitStageCurrent);
+        assert!(matches!(
+            &app.ui.mode,
+            UiMode::GitTrust(GitMutation::StageCurrent(path))
+                if path == Path::new("current file.rs")
+        ));
+        assert!(app.footer_hint().contains("repository filters/hooks"));
+        assert!(
+            !app.git
+                .repository
+                .as_ref()
+                .unwrap()
+                .status_path(&path)
+                .unwrap()
+                .unwrap()
+                .is_staged()
+        );
+
+        app.handle_event(key(KeyCode::Char('v')));
+        assert_eq!(
+            app.workspace.active().document.display_name(),
+            "Git Operation Trust"
+        );
+        let details = app.workspace.active().document.text();
+        assert!(details.contains(&format!(
+            "Repository: {}",
+            app.git.repository.as_ref().unwrap().root().display()
+        )));
+        assert!(details.contains("Repository path: current file.rs"));
+        assert!(details.contains("This view did not run Git"));
+        assert!(app.close_active_buffer(false).is_ok());
+
+        app.execute_ex_command(ExCommand::GitStageCurrent);
+        app.handle_event(key(KeyCode::Char('y')));
+        assert!(app.git.pending.is_some());
+        app.execute_ex_command(ExCommand::GitUnstageCurrent);
+        assert_eq!(
+            app.status_message(),
+            Some("A Git operation is already running")
+        );
+        assert!(app.status_is_error());
+        poll_git_mutation_to_refresh(&mut app);
+        assert!(
+            app.git
+                .repository
+                .as_ref()
+                .unwrap()
+                .status_path(&path)
+                .unwrap()
+                .unwrap()
+                .is_staged()
+        );
+
+        app.execute_action(Action::GitUnstageCurrent);
+        assert!(matches!(
+            &app.ui.mode,
+            UiMode::GitTrust(GitMutation::UnstageCurrent(path))
+                if path == Path::new("current file.rs")
+        ));
+        app.handle_event(key(KeyCode::Char('y')));
+        poll_git_mutation_to_refresh(&mut app);
+        let status = app
+            .git
+            .repository
+            .as_ref()
+            .unwrap()
+            .status_path(&path)
+            .unwrap()
+            .unwrap();
+        assert!(!status.is_staged());
+        assert!(status.has_worktree_change());
+    }
+
+    #[test]
+    fn git_index_mutations_refuse_unsaved_buffers_without_entering_trust() {
+        let Some((directory, path, mut app)) = git_mutation_app() else {
+            return;
+        };
+        app.workspace
+            .active_mut()
+            .insert("// saved\n", EditKind::Insert)
+            .unwrap();
+        app.save_current();
+        assert!(test_git(
+            directory.path(),
+            [
+                OsStr::new("add"),
+                OsStr::new("--"),
+                OsStr::new("current file.rs")
+            ]
+        ));
+        app.workspace
+            .active_mut()
+            .insert("// unsaved\n", EditKind::Insert)
+            .unwrap();
+
+        app.execute_action(Action::GitStageCurrent);
+        assert!(matches!(app.ui.mode, UiMode::Edit));
+        assert_eq!(
+            app.status_message(),
+            Some("Save the current buffer first; Git would otherwise use the disk version")
+        );
+        assert!(app.status_is_error());
+
+        app.execute_ex_command(ExCommand::GitUnstageCurrent);
+        assert!(matches!(app.ui.mode, UiMode::Edit));
+        assert_eq!(
+            app.status_message(),
+            Some("Save the current buffer first; Git would otherwise use the disk version")
+        );
+        assert!(
+            app.git
+                .repository
+                .as_ref()
+                .unwrap()
+                .status_path(&path)
+                .unwrap()
+                .unwrap()
+                .is_staged(),
+            "the staged disk version was preserved"
+        );
+    }
+
+    #[test]
+    fn git_commit_uses_bounded_message_prompt_trust_and_background_refresh() {
+        let Some((directory, _path, mut app)) = git_mutation_app() else {
+            return;
+        };
+        app.workspace
+            .active_mut()
+            .insert("// commit me\n", EditKind::Insert)
+            .unwrap();
+        app.save_current();
+        assert!(test_git(
+            directory.path(),
+            [
+                OsStr::new("add"),
+                OsStr::new("--"),
+                OsStr::new("current file.rs")
+            ]
+        ));
+
+        app.execute_action(Action::GitCommitStaged);
+        assert!(matches!(
+            &app.ui.mode,
+            UiMode::Prompt(Prompt {
+                kind: PromptFlow::GitCommitMessage,
+                ..
+            })
+        ));
+        app.handle_event(key(KeyCode::Enter));
+        assert!(app.status_is_error());
+        assert!(matches!(
+            &app.ui.mode,
+            UiMode::Prompt(Prompt {
+                kind: PromptFlow::GitCommitMessage,
+                ..
+            })
+        ));
+
+        app.handle_event(Event::Paste("trusted local commit".to_owned()));
+        app.handle_event(key(KeyCode::Enter));
+        assert!(matches!(
+            &app.ui.mode,
+            UiMode::GitTrust(GitMutation::CommitStaged { message })
+                if message == "trusted local commit"
+        ));
+        assert!(app.footer_hint().contains("trusted local commit"));
+        app.handle_event(key(KeyCode::Char('y')));
+        assert!(app.git.pending.is_some());
+        poll_git_mutation_to_refresh(&mut app);
+
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(directory.path())
+            .args(["log", "-1", "--pretty=%s"])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout).trim(),
+            "trusted local commit"
+        );
+        assert!(app.status_message().is_some_and(|message| {
+            message.contains("Committed staged changes as \"trusted local commit\"")
+        }));
     }
 
     fn workspace_tree_app() -> (tempfile::TempDir, App) {

@@ -1,8 +1,10 @@
-//! Small, bounded synchronous Git service for editor-facing version-control features.
+//! Small, bounded Git service for editor-facing version-control features.
 //!
 //! Every Git invocation is built with [`Command`] arguments. Pathspecs are
 //! passed after `--` with Git's literal-pathspec mode enabled, so a filename is
 //! never interpreted as a shell fragment, option, or pathspec expression.
+//! Read operations are synchronous at their existing call sites; the three
+//! trusted mutations are admitted only through the background coordinator.
 
 use std::ffi::OsString;
 use std::fmt;
@@ -18,6 +20,7 @@ const GIT_STDOUT_LIMIT: usize = 8 * 1024 * 1024;
 const GIT_STDERR_LIMIT: usize = 256 * 1024;
 const GIT_WAIT_INTERVAL: Duration = Duration::from_millis(10);
 const MAX_BRANCH_NAME_BYTES: usize = 255;
+pub const MAX_GIT_COMMIT_MESSAGE_BYTES: usize = 4 * 1024;
 
 #[derive(Clone, Copy, Debug)]
 struct CommandLimits {
@@ -36,6 +39,25 @@ const GIT_COMMAND_LIMITS: CommandLimits = CommandLimits {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct GitRepository {
     root: PathBuf,
+}
+
+/// One deliberately bounded, local-only Git index mutation.
+///
+/// These operations are intended to run on the background service worker only.
+/// They never invoke a shell, accept arbitrary arguments, change branches, or
+/// contact a remote.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum GitMutation {
+    StageCurrent(PathBuf),
+    UnstageCurrent(PathBuf),
+    CommitStaged { message: String },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum GitMutationResult {
+    Staged(PathBuf),
+    Unstaged(PathBuf),
+    Committed { message: String },
 }
 
 /// Parsed output from `git status --porcelain=v2 -z --branch`.
@@ -179,6 +201,10 @@ pub enum GitError {
     },
     InvalidPath(PathBuf),
     InvalidRevision(String),
+    InvalidCommitMessage(String),
+    UnsafeMutation(String),
+    NothingStaged,
+    SignedCommitUnsupported,
     Parse(StatusParseError),
 }
 
@@ -228,6 +254,15 @@ impl fmt::Display for GitError {
                 formatter,
                 "commit id must be 4 to 64 hexadecimal characters: {revision}"
             ),
+            Self::InvalidCommitMessage(reason) => {
+                write!(formatter, "commit message is invalid: {reason}")
+            }
+            Self::UnsafeMutation(reason) => write!(formatter, "Git mutation refused: {reason}"),
+            Self::NothingStaged => write!(formatter, "nothing is staged to commit"),
+            Self::SignedCommitUnsupported => write!(
+                formatter,
+                "signed commits are not supported in the non-interactive worker; use the workspace shell"
+            ),
             Self::Parse(error) => error.fmt(formatter),
         }
     }
@@ -243,7 +278,11 @@ impl std::error::Error for GitError {
             | Self::TimedOut { .. }
             | Self::OutputLimitExceeded { .. }
             | Self::InvalidRevision(_)
-            | Self::InvalidPath(_) => None,
+            | Self::InvalidPath(_)
+            | Self::InvalidCommitMessage(_)
+            | Self::UnsafeMutation(_)
+            | Self::NothingStaged
+            | Self::SignedCommitUnsupported => None,
         }
     }
 }
@@ -493,6 +532,110 @@ impl GitRepository {
         Ok(branches)
     }
 
+    /// Apply one trusted, local-only mutation using fixed Git subcommands.
+    ///
+    /// Callers must still obtain explicit user trust before scheduling this
+    /// work: `git add` can execute clean filters and `git commit` can execute
+    /// repository hooks. The runner remains bounded and non-interactive.
+    pub fn apply_mutation(&self, mutation: GitMutation) -> Result<GitMutationResult, GitError> {
+        match mutation {
+            GitMutation::StageCurrent(path) => self.stage_current(path),
+            GitMutation::UnstageCurrent(path) => self.unstage_current(path),
+            GitMutation::CommitStaged { message } => self.commit_staged(message),
+        }
+    }
+
+    fn stage_current(&self, path: PathBuf) -> Result<GitMutationResult, GitError> {
+        let path = self.safe_mutation_path(&path)?;
+        let mut command = self.mutation_command();
+        command.args(["add", "--"]).arg(&path);
+        checked_output(command, "stage current file")?;
+        Ok(GitMutationResult::Staged(path))
+    }
+
+    fn unstage_current(&self, path: PathBuf) -> Result<GitMutationResult, GitError> {
+        let path = self.safe_mutation_path(&path)?;
+        let status = self.status()?;
+        let mut command = self.mutation_command();
+        if status.branch.unborn {
+            command.args(["rm", "--cached", "-f", "--"]).arg(&path);
+        } else {
+            command.args(["restore", "--staged", "--"]).arg(&path);
+        }
+        checked_output(command, "unstage current file")?;
+        Ok(GitMutationResult::Unstaged(path))
+    }
+
+    fn commit_staged(&self, message: String) -> Result<GitMutationResult, GitError> {
+        let message = validate_commit_message(&message)?.to_owned();
+        let status = self.status()?;
+        if status
+            .files
+            .iter()
+            .any(|file| file.kind == StatusEntryKind::Unmerged)
+        {
+            return Err(GitError::UnsafeMutation(
+                "resolve unmerged paths before committing".to_owned(),
+            ));
+        }
+        if !status.files.iter().any(FileStatus::is_staged) {
+            return Err(GitError::NothingStaged);
+        }
+        if self.commit_signing_enabled()? {
+            return Err(GitError::SignedCommitUnsupported);
+        }
+
+        let mut command = self.mutation_command();
+        command.args(["commit", "-m", message.as_str()]);
+        checked_output(command, "commit staged changes")?;
+        Ok(GitMutationResult::Committed { message })
+    }
+
+    fn safe_mutation_path(&self, path: &Path) -> Result<PathBuf, GitError> {
+        // Re-resolve the parent at execution time even when the UI retained a
+        // repository-relative path through its trust prompt. This closes the
+        // easy symlink-retarget gap between admission and the worker.
+        let absolute = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            self.root.join(path)
+        };
+        let path = self.safe_path(&absolute)?;
+        if let Some(status) = self
+            .status()?
+            .files
+            .into_iter()
+            .find(|file| file.path == path || file.original_path.as_ref() == Some(&path))
+        {
+            if status.kind == StatusEntryKind::Unmerged {
+                return Err(GitError::UnsafeMutation(format!(
+                    "{} is unmerged",
+                    path.display()
+                )));
+            }
+            if status.submodule.is_submodule {
+                return Err(GitError::UnsafeMutation(format!(
+                    "{} is a submodule",
+                    path.display()
+                )));
+            }
+        }
+        Ok(path)
+    }
+
+    fn commit_signing_enabled(&self) -> Result<bool, GitError> {
+        let mut command = self.command();
+        command.args(["config", "--bool", "--get", "commit.gpgSign"]);
+        let output = run_output(command, "inspect commit signing")?;
+        if output.status.success() {
+            return Ok(trim_one_line_ending(&output.stdout).eq_ignore_ascii_case(b"true"));
+        }
+        if output.status.code() == Some(1) {
+            return Ok(false);
+        }
+        Err(command_failed("inspect commit signing", output))
+    }
+
     fn command(&self) -> Command {
         let mut command = Command::new("git");
         command
@@ -500,6 +643,18 @@ impl GitRepository {
             .arg("-C")
             .arg(&self.root)
             .env("GIT_OPTIONAL_LOCKS", "0")
+            .env("GIT_PAGER", "cat");
+        command
+    }
+
+    fn mutation_command(&self) -> Command {
+        let mut command = Command::new("git");
+        command
+            .arg("--literal-pathspecs")
+            .arg("-C")
+            .arg(&self.root)
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .env("GCM_INTERACTIVE", "Never")
             .env("GIT_PAGER", "cat");
         command
     }
@@ -594,6 +749,26 @@ fn validate_commit_id(commit: &str) -> Result<&str, GitError> {
     } else {
         Err(GitError::InvalidRevision(commit.to_owned()))
     }
+}
+
+pub fn validate_commit_message(message: &str) -> Result<&str, GitError> {
+    let message = message.trim();
+    if message.is_empty() {
+        return Err(GitError::InvalidCommitMessage(
+            "enter a non-empty message".to_owned(),
+        ));
+    }
+    if message.len() > MAX_GIT_COMMIT_MESSAGE_BYTES {
+        return Err(GitError::InvalidCommitMessage(format!(
+            "message exceeds the {MAX_GIT_COMMIT_MESSAGE_BYTES}-byte limit"
+        )));
+    }
+    if message.chars().any(char::is_control) {
+        return Err(GitError::InvalidCommitMessage(
+            "control characters and line breaks are not allowed".to_owned(),
+        ));
+    }
+    Ok(message)
 }
 
 fn parse_blame_line(input: &[u8]) -> Result<BlameLine, GitError> {
@@ -1922,6 +2097,226 @@ mod tests {
         assert_eq!(blame.summary.as_deref(), Some("blame base"));
         assert_eq!(blame.filename.as_deref(), Some(Path::new("blame.txt")));
         assert_eq!(blame.content, "second");
+    }
+
+    #[test]
+    fn trusted_stage_and_unstage_are_literal_and_preserve_the_worktree() {
+        let Some((directory, repository)) = mutation_test_repository(true) else {
+            return;
+        };
+        let tracked = directory.path().join("tracked file.txt");
+        fs::write(&tracked, "changed\n").unwrap();
+
+        assert_eq!(
+            repository
+                .apply_mutation(GitMutation::StageCurrent(tracked.clone()))
+                .unwrap(),
+            GitMutationResult::Staged(PathBuf::from("tracked file.txt"))
+        );
+        let staged = repository.status_path(&tracked).unwrap().unwrap();
+        assert_eq!(staged.index, FileState::Modified);
+
+        assert_eq!(
+            repository
+                .apply_mutation(GitMutation::UnstageCurrent(tracked.clone()))
+                .unwrap(),
+            GitMutationResult::Unstaged(PathBuf::from("tracked file.txt"))
+        );
+        let unstaged = repository.status_path(&tracked).unwrap().unwrap();
+        assert_eq!(unstaged.index, FileState::Unmodified);
+        assert_eq!(unstaged.worktree, FileState::Modified);
+        assert_eq!(fs::read_to_string(&tracked).unwrap(), "changed\n");
+
+        let odd = directory.path().join("- odd ; name.txt");
+        fs::write(&odd, "literal\n").unwrap();
+        repository
+            .apply_mutation(GitMutation::StageCurrent(odd.clone()))
+            .unwrap();
+        assert!(repository.status_path(&odd).unwrap().unwrap().is_staged());
+        assert!(odd.exists());
+    }
+
+    #[test]
+    fn unborn_repository_can_unstage_without_deleting_the_file() {
+        let Some((directory, repository)) = mutation_test_repository(false) else {
+            return;
+        };
+        let file = directory.path().join("first file.txt");
+        fs::write(&file, "first\n").unwrap();
+
+        repository
+            .apply_mutation(GitMutation::StageCurrent(file.clone()))
+            .unwrap();
+        assert!(repository.status_path(&file).unwrap().unwrap().is_staged());
+        repository
+            .apply_mutation(GitMutation::UnstageCurrent(file.clone()))
+            .unwrap();
+
+        let status = repository.status_path(&file).unwrap().unwrap();
+        assert!(!status.is_staged());
+        assert_eq!(status.worktree, FileState::Untracked);
+        assert_eq!(fs::read_to_string(file).unwrap(), "first\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn mutation_revalidates_relative_paths_against_symlink_escape() {
+        use std::os::unix::fs::symlink;
+
+        let Some((directory, repository)) = mutation_test_repository(false) else {
+            return;
+        };
+        let outside = tempfile::tempdir().unwrap();
+        fs::write(outside.path().join("outside.txt"), "outside\n").unwrap();
+        symlink(outside.path(), directory.path().join("escape")).unwrap();
+
+        assert!(matches!(
+            repository.apply_mutation(GitMutation::StageCurrent(PathBuf::from(
+                "escape/outside.txt"
+            ))),
+            Err(GitError::InvalidPath(_))
+        ));
+        assert!(
+            !repository
+                .status()
+                .unwrap()
+                .files
+                .iter()
+                .any(FileStatus::is_staged)
+        );
+    }
+
+    #[test]
+    fn commit_staged_commits_only_the_index_and_keeps_other_worktree_changes() {
+        let Some((directory, repository)) = mutation_test_repository(true) else {
+            return;
+        };
+        let staged = directory.path().join("tracked file.txt");
+        let unstaged = directory.path().join("unstaged.txt");
+        fs::write(&staged, "committed\n").unwrap();
+        fs::write(&unstaged, "leave me\n").unwrap();
+        repository
+            .apply_mutation(GitMutation::StageCurrent(staged.clone()))
+            .unwrap();
+
+        assert_eq!(
+            repository
+                .apply_mutation(GitMutation::CommitStaged {
+                    message: "bounded local commit".to_owned(),
+                })
+                .unwrap(),
+            GitMutationResult::Committed {
+                message: "bounded local commit".to_owned(),
+            }
+        );
+
+        let head = String::from_utf8_lossy(&repository.recent_log(1).unwrap()).into_owned();
+        assert!(head.contains("bounded local commit"));
+        let status = repository.status().unwrap();
+        assert!(status.files.iter().any(|file| {
+            file.path == Path::new("unstaged.txt") && file.worktree == FileState::Untracked
+        }));
+        assert_eq!(fs::read_to_string(unstaged).unwrap(), "leave me\n");
+    }
+
+    #[test]
+    fn commit_validation_rejects_empty_control_long_unsigned_and_empty_index_cases() {
+        assert!(matches!(
+            validate_commit_message("   "),
+            Err(GitError::InvalidCommitMessage(_))
+        ));
+        assert!(matches!(
+            validate_commit_message("line one\nline two"),
+            Err(GitError::InvalidCommitMessage(_))
+        ));
+        assert!(matches!(
+            validate_commit_message(&"x".repeat(MAX_GIT_COMMIT_MESSAGE_BYTES + 1)),
+            Err(GitError::InvalidCommitMessage(_))
+        ));
+
+        let Some((directory, repository)) = mutation_test_repository(true) else {
+            return;
+        };
+        assert!(matches!(
+            repository.apply_mutation(GitMutation::CommitStaged {
+                message: "nothing".to_owned(),
+            }),
+            Err(GitError::NothingStaged)
+        ));
+
+        fs::write(directory.path().join("tracked file.txt"), "signed\n").unwrap();
+        repository
+            .apply_mutation(GitMutation::StageCurrent(
+                directory.path().join("tracked file.txt"),
+            ))
+            .unwrap();
+        assert!(git(
+            directory.path(),
+            [
+                OsStr::new("config"),
+                OsStr::new("commit.gpgSign"),
+                OsStr::new("true")
+            ]
+        ));
+        assert!(matches!(
+            repository.apply_mutation(GitMutation::CommitStaged {
+                message: "signed".to_owned(),
+            }),
+            Err(GitError::SignedCommitUnsupported)
+        ));
+    }
+
+    fn mutation_test_repository(
+        with_initial_commit: bool,
+    ) -> Option<(tempfile::TempDir, GitRepository)> {
+        if !git_available() {
+            return None;
+        }
+        let directory = tempfile::tempdir().unwrap();
+        if !git(directory.path(), [OsStr::new("init"), OsStr::new("-q")]) {
+            return None;
+        }
+        assert!(git(
+            directory.path(),
+            [
+                OsStr::new("config"),
+                OsStr::new("user.name"),
+                OsStr::new("w mutation test")
+            ]
+        ));
+        assert!(git(
+            directory.path(),
+            [
+                OsStr::new("config"),
+                OsStr::new("user.email"),
+                OsStr::new("mutation@example.invalid")
+            ]
+        ));
+        assert!(git(
+            directory.path(),
+            [
+                OsStr::new("config"),
+                OsStr::new("commit.gpgSign"),
+                OsStr::new("false")
+            ]
+        ));
+        if with_initial_commit {
+            fs::write(directory.path().join("tracked file.txt"), "base\n").unwrap();
+            assert!(git(
+                directory.path(),
+                [
+                    OsStr::new("add"),
+                    OsStr::new("--"),
+                    OsStr::new("tracked file.txt")
+                ]
+            ));
+            assert!(git(
+                directory.path(),
+                [OsStr::new("commit"), OsStr::new("-qm"), OsStr::new("base")]
+            ));
+        }
+        let repository = GitRepository::discover(directory.path()).unwrap();
+        Some((directory, repository))
     }
 
     fn git<const N: usize>(root: &Path, arguments: [&OsStr; N]) -> bool {

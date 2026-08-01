@@ -47,6 +47,9 @@ pub enum ExCommand {
     GitCommitInfo(String),
     GitBlameLine,
     GitBranches,
+    GitStageCurrent,
+    GitUnstageCurrent,
+    GitCommitStaged,
     LspLog,
     LspRestart,
     KeymapReference,
@@ -180,6 +183,9 @@ pub fn parse(input: &str) -> Result<ExCommand, String> {
             no_argument(argument, ExCommand::GitBlameLine)
         }
         "branches" => no_argument(argument, ExCommand::GitBranches),
+        "stage-current" => no_argument(argument, ExCommand::GitStageCurrent),
+        "unstage-current" => no_argument(argument, ExCommand::GitUnstageCurrent),
+        "commit" | "commit-staged" => no_argument(argument, ExCommand::GitCommitStaged),
         "lsp-log" => no_argument(argument, ExCommand::LspLog),
         "lsp-restart" => no_argument(argument, ExCommand::LspRestart),
         "keys" | "keymap" | "shortcuts" | "bindings" => {
@@ -347,6 +353,17 @@ mod tests {
         );
         assert_eq!(parse("terminal").unwrap(), ExCommand::Terminal);
         assert_eq!(parse("changes").unwrap(), ExCommand::GitChanges);
+        assert_eq!(parse("stage-current").unwrap(), ExCommand::GitStageCurrent);
+        assert_eq!(
+            parse("unstage-current").unwrap(),
+            ExCommand::GitUnstageCurrent
+        );
+        assert_eq!(parse("commit").unwrap(), ExCommand::GitCommitStaged);
+        assert_eq!(parse("commit-staged").unwrap(), ExCommand::GitCommitStaged);
+        assert_eq!(
+            parse("commit direct message"),
+            Err("this command does not take an argument".to_owned())
+        );
         assert_eq!(
             parse("open-change now"),
             Err("this command does not take an argument".to_owned())
@@ -418,14 +435,10 @@ mod tests {
             "git-pull",
             "push",
             "git-push",
-            "stage-current",
             "stage-current-file",
             "stage-file",
-            "unstage-current",
             "unstage-current-file",
             "unstage-file",
-            "commit",
-            "commit-staged",
             "git-commit",
             "stage",
             "unstage",

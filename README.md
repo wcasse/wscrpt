@@ -8,18 +8,18 @@
 
 Ordinary typing stays ordinary. `Esc` (or `Ctrl-K`) opens a **no-timeout** action layer that does not depend on Command-key chords or permanent panel clutter. After Action closes, the first real document edit gets one short, steady `EDIT*`/cursor acknowledgement; navigation and failed edits do not trigger it. Mouse reporting is **off by default** so Blink can keep native touch selection.
 
-Version **0.2** is a deliberate core: editing, workspace navigation/search, trusted tasks, recovery, sessions, read-only Git, bounded LSP, and a safe full-screen workspace shell. It is not a VS Code clone. See [CHANGELOG.md](CHANGELOG.md).
+Version **0.2** is a deliberate core: editing, workspace navigation/search, trusted tasks, recovery, sessions, Git inspection plus three trusted local mutations, bounded LSP, and a safe full-screen workspace shell. It is not a VS Code clone. See [CHANGELOG.md](CHANGELOG.md).
 
 ## Who this is for
 
 - You code on a **real** Linux or macOS host and connect from an iPad (or any thin client) over Blink / SSH / mosh / tmux.
-- You want workspace tools (Quick Open, search, tasks, LSP assist, Git *inspect*) without GUI remote desktop.
+- You want workspace tools (Quick Open, search, tasks, LSP assist, Git inspection plus trusted local stage/commit) without GUI remote desktop.
 - You care about **reliable Escape**, reconnect survival, recovery journals, and clean terminal restore.
 
 ## Who this is not for
 
 - Local GUI IDE workflows (use VS Code, Zed, etc.).
-- Full LSP refactor suites, multi-file automated rewrites, or in-editor Git commit/push UIs (0.2 keeps those in the shell or trusted tasks on purpose).
+- Full LSP refactor suites, multi-file automated rewrites, or a full Git client (branch, network, discard/reset/clean, and arbitrary Git remain in the shell).
 - Native Windows development hosts. Windows users can run the supported Linux host path in WSL 2; see [host support](docs/HOST_SUPPORT.md).
 
 ## Why not vim / VS Code remote / nano?
@@ -129,6 +129,8 @@ Press and release `Esc`, then type a sequence. Prefixes wait indefinitely. `Ctrl
 | `Esc t d` / `Esc t r` | Default task / task picker (trust-gated) |
 | `Esc t t` | Full-screen workspace shell; exit returns to wscrpt |
 | `Esc v s` / `Esc v D` | Read-only Git status / changed-diff picker |
+| `Esc v S` / `Esc v U` | Trust-gated stage / unstage current saved file |
+| `Esc v c` | Trust-gated commit of already staged changes |
 | `Esc ?` / `Esc Space` | Keymap reference / command palette |
 | `Esc :` | Colon command line |
 
@@ -140,14 +142,14 @@ Full list: [docs/COMMANDS.md](docs/COMMANDS.md) or `wscrpt --print-command-refer
 - **Workspace:** multi-buffer, Quick Open, tree/sidebar, recent/dirty/closed files, create/rename/copy, project search, outlines/annotations, bookmarks, jump history.
 - **Tasks:** `.wscrpt/tasks.toml` argument vectors, trust before every run, bounded output, process-group cancel, Problems extraction. See [examples/tasks.toml](examples/tasks.toml).
 - **LSP:** user-global servers only; diagnostics, completion, hover, definition, references, symbols, format (single document).
-- **Git:** read-only inspect (status, diff, log, blame, branches, …). Mutate in the workspace shell.
+- **Git:** read-only inspect plus trust-gated, asynchronous `stage-current`, `unstage-current`, and `commit-staged`. Fixed direct arguments only; the UI warns that filters/hooks may run. Branch, network, destructive, and arbitrary Git stay in the workspace shell.
 - **Resilience:** session state, recovery journals, bracketed paste, differential redraw, terminal restore on exit/panic.
 
 ### Intentional non-goals (0.2)
 
 - Embedded / split terminals inside the TUI → use `Esc t t` / `:terminal`.
 - Project-wide replace, LSP rename, code actions, cross-file workspace edits → shell or trusted external tools.
-- In-editor Git stage/commit/push/pull → workspace shell.
+- Git branch/switch, push/pull/fetch, discard/reset/clean, signed commit, and arbitrary path mutation → workspace shell.
 
 ## Configuration
 

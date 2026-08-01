@@ -10,8 +10,8 @@ Where to edit without reading all of `src/app.rs` first. Pair with [ARCHITECTURE
 
 `src/app.rs` is intentionally large (~18k lines): prompts, action dispatch, service admission, and feature orchestration live there. **Do not treat it as a free place to dump new subsystems.** Prefer a focused module plus a small call site from `App`. Mutations that touch the filesystem or external tools must stay inside the 0.2 boundary:
 
-- **In-editor:** buffer edits, atomic save / Save As / Save Copy As, project create/rename, single-document LSP format.
-- **Out of bounds:** project-wide replace, LSP rename/code actions/workspace edits, in-editor Git mutation, embedded terminals. Use a trusted task or `Esc t t` / `:terminal`, then refresh/reload.
+- **In-editor:** buffer edits, atomic save / Save As / Save Copy As, project create/rename, single-document LSP format, and the trust-gated local Git stage-current / unstage-current / commit-staged slice.
+- **Out of bounds:** project-wide replace, LSP rename/code actions/workspace edits, Git branch/network/discard/reset/clean/arbitrary-path operations, and embedded terminals. Use a trusted task or `Esc t t` / `:terminal`, then refresh/reload.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) (mutation boundaries) and [CHANGELOG.md](../CHANGELOG.md) (0.2 removed commands and non-goals). Do not reintroduce removed surface area without an explicit design discussion.
 
@@ -27,12 +27,12 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) (mutation boundaries) and [CHANGELOG.md](
 | **In-buffer find/replace** | `src/app.rs` (prompts + match state); buffer text via editor/document | Project-wide **search** is separate (below). No multi-file replace. |
 | **Project search / Quick Open index** | `src/search.rs`, `src/project.rs`; worker + prompts in `src/app.rs` | Index/tree snapshots refresh via services; search is generation-cancellable. |
 | **Tasks** | `src/tasks.rs`, `src/task_output.rs`, `src/task_problem.rs`; trust UI in `src/app.rs` | `.wscrpt/tasks.toml` argv only; trust gate before every run. |
-| **Git (read-only)** | `src/git.rs`; status snapshot via `src/services.rs` + `GitState` in `src/app.rs` | Inspect only. Mutate in the workspace shell. |
+| **Git** | `src/git.rs`; snapshot/mutation workers in `src/services.rs`; `GitState` + trust UI in `src/app.rs` | Inspection is read-only. Only saved-current stage/unstage and commit-staged are admitted; one at a time, trust every run, then refresh status. |
 | **LSP protocol / client / UI adapters** | `src/lsp.rs`, `src/lsp_client.rs`, `src/lsp_session.rs`, `src/lsp_ui.rs`, `src/lsp_discover.rs` | Config: `src/config.rs` + user `config.toml`. Orchestration/sync in `App` `LspState`. Format = single-document only. |
 | **Render / layout / redraw** | `src/render.rs`; layout accessors on `App` | Differential TUI; no business logic in the renderer. |
 | **Session restore** | `src/session.rs`; bootstrap in `src/main.rs` / `App` | Session v2: paths + layout metadata, never buffer text. `--no-session` in CLI. |
 | **Crash recovery journals** | `src/recovery.rs`; listing via `services` + `App` | Unsaved text only; atomic journal writes. |
-| **Background services** | `src/services.rs`; admission `App::poll_services` | Project index, Git, recovery scans. Stale results dropped by workspace id + generation. |
+| **Background services** | `src/services.rs`; admission `App::poll_services` | Project index, Git snapshot/mutation, recovery scans. Stale results dropped by workspace id + generation; Git mutation is distinct and single-flight. |
 | **CLI flags / startup / shell handoff** | `src/main.rs` | `Cli` (clap): path, `--project`, `--mouse` / `--no-mouse`, `--no-osc52`, `--print-default-config`, `--print-command-reference`, `--health`, `--input-diagnostics`, `--no-session`. |
 | **Config defaults / language servers** | `src/config.rs`; default text in `src/main.rs`; discovery `src/lsp_discover.rs` | LSP only from user-global config, never workspace files. `format_on_save` lives on `Config`. |
 | **First-run help** | `src/onboarding.rs`; open from `src/main.rs` via `App::maybe_open_first_run_help` | XDG state flag; set `WSCRPT_SKIP_FIRST_RUN_HELP=1` in automation. |

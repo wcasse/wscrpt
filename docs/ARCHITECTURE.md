@@ -13,7 +13,7 @@
 - `LspState`: one configured service, synchronized-document registry, requests, diagnostics, capabilities, quarantine, and logs.
 - `TaskState`: trusted task configuration/runner, active process, bounded output, and last task.
 - `PersistenceState`: recovery journals, session store, recent files, and service status.
-- `GitState`: read-only repository, branch, change-count, and loading state.
+- `GitState`: repository, branch, change-count, snapshot state, and at most one trusted local mutation in flight.
 
 The active `Workspace` and runtime `Config` are private. Renderers receive read-only accessors; mutations enter through editor commands.
 
@@ -25,13 +25,13 @@ Prompt routing uses typed `PromptFlow` variants. Each flow describes its visible
 
 ## Background services
 
-`ServiceCoordinator` owns a bounded result channel and cancellation token for project indexing, Git discovery/status, and recovery scanning. Every `ServiceEvent` carries:
+`ServiceCoordinator` owns a bounded result channel and cancellation token for project indexing, Git discovery/status, trusted Git mutation, and recovery scanning. Every `ServiceEvent` carries:
 
 - an application workspace identity;
 - a service-specific generation;
 - a typed result payload.
 
-Refresh cancels the old token and advances the generation. `App::poll_services` is the single admission point and drops results that do not match both values. A failed refresh retains the last usable project snapshot. Dropping the coordinator cancels all jobs and invalidates their generations.
+Refresh cancels the old snapshot token and advances its generation. Git mutation has a distinct generation/token, is single-flight, and is never cancelled by a status refresh. `App::poll_services` is the single admission point and drops results that do not match both values. Every mutation outcome, including failure, starts a fresh Git snapshot before another operation is admitted. A failed project refresh retains the last usable project snapshot. Dropping the coordinator cancels all jobs and invalidates their generations.
 
 Project-, Git-, and recovery-dependent commands remain disabled while their snapshot is pending and report that state to the user. Small task configuration loading remains synchronous, but no task runs without the existing trust prompt.
 
@@ -42,9 +42,10 @@ Supported file mutation inside the editor is intentionally narrow:
 - ordinary buffer edits and in-buffer replacement;
 - atomic explicit saves and safe Save As/Save Copy As;
 - explicit project file creation and clean file rename;
-- single-document LSP formatting applied as one undoable edit.
+- single-document LSP formatting applied as one undoable edit;
+- after an explicit trust prompt, stage or unstage only the current saved file, or commit only the already staged index with one bounded single-line message.
 
-Cross-file LSP workspace edits, LSP rename/code actions, project-wide replacement, and Git mutation are outside the 0.2 editor boundary. Use a trusted task or the full-screen workspace shell, then review and explicitly refresh/reload as needed.
+Git mutations use fixed direct arguments on a bounded non-interactive worker. Stage/unstage rejects dirty buffers, submodules, and unmerged paths; commit rejects an empty index, unmerged paths, and configured signing. Git filters or hooks can still execute repository code, so every operation is trust-gated. Branch changes, network operations, discard/reset/clean, arbitrary paths/arguments, cross-file LSP workspace edits, LSP rename/code actions, and project-wide replacement remain outside the editor boundary. Use a trusted task or the full-screen workspace shell for those workflows.
 
 ## Persistence and recovery
 

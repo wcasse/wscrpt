@@ -54,7 +54,7 @@ Use a disposable Git workspace containing:
 - committed, modified, staged, and untracked Git paths;
 - a second shell connected to the same host for external-change, reconnect, and cleanup checks.
 
-Record before/after file hashes and `git status --porcelain=v2`. Git inspection in `wscrpt` must not change either the index or worktree.
+Record before/after file hashes, `git status --porcelain=v2`, and `git log -1 --pretty=%s`. Git inspection must not change the index or worktree. The mutation exercise must change only the explicitly approved index/HEAD state and must never replace unsaved buffer text or unrelated worktree files.
 
 ## Acceptance matrix
 
@@ -76,7 +76,8 @@ Each row needs a human result and evidence location. `PASS` means the behavior i
 | E01 | Inspect the task catalog/details, request a task, refuse trust, then request again and approve. | No process starts before approval. The approved task runs with bounded Unicode output and its problem location is navigable. | |
 | E02 | Run, rerun, and stop a task containing a foreground child. | Output remains responsive and stop cleans up the owned Unix process group/descendants. | |
 | F01 | Use all retained Git views and pickers, then compare captured Git status and file hashes. | Status/diff/log/commit/history/HEAD/blame/branch data is useful and read-only; index and worktree are unchanged. | |
-| F02 | Press `Esc t t`, run terminal programs and Git mutation, then exit the shell. Repeat via `:terminal`. | The TUI releases cleanly, the shell starts in the workspace, job control/Unicode/resize work, exit returns to the same editor state, and a full redraw is clean. | |
+| F02 | On a saved modified source file, request `Esc v S`, inspect details, cancel, then request again and trust. Repeat with `Esc v U`. Make the buffer dirty and try both again. Finally stage a known change, use `Esc v c`, enter a message, inspect/cancel, then repeat and trust. | No index/HEAD change occurs before `Y`; details show the exact repository/path or message and warn about filters/hooks. Approved stage/unstage runs without UI freeze, dirty-buffer attempts are refused, commit includes only the pre-staged index, and status refreshes after every success/failure. | |
+| F03 | Press `Esc t t`, run terminal programs plus a branch/network or other unsupported Git operation, then exit the shell. Repeat via `:terminal`. | The TUI releases cleanly, the shell starts in the workspace, job control/Unicode/resize work, exit returns to the same editor state, and a full redraw is clean. | |
 | G01 | Copy a line, a Unicode selection, a file location, and a problem. Test with OSC 52 enabled and disabled. | The internal register always works. The clipboard attempt succeeds or fails visibly without corrupting terminal output. | |
 | H01 | Leave multiple buffers/cursors/bookmarks/sidebar/soft-wrap state, disconnect mosh, reconnect, and continue. | tmux/mosh continuity is usable and no key/redraw storm occurs after reconnect. | |
 | H02 | Exit cleanly, launch pathless, and inspect restored state. | Supported paths, active buffer, cursors, recent files, bookmarks, sidebar, Problems flag, and wrap state restore. No terminal process/output is restored. | |
@@ -97,6 +98,7 @@ Record an explicit human `PASS` or `FAIL` for each of these release decisions:
 - project search;
 - completion;
 - task execution and stop;
+- trusted local Git stage/unstage/commit;
 - full-screen shell handoff and return;
 - clipboard attempt;
 - reconnect;

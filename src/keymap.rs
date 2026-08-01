@@ -272,6 +272,9 @@ pub enum Action {
     GitHead,
     GitBlameLine,
     Branches,
+    GitStageCurrent,
+    GitUnstageCurrent,
+    GitCommitStaged,
 }
 
 impl Action {
@@ -379,6 +382,9 @@ impl Action {
         Self::GitHead,
         Self::GitBlameLine,
         Self::Branches,
+        Self::GitStageCurrent,
+        Self::GitUnstageCurrent,
+        Self::GitCommitStaged,
     ];
 
     pub fn command(self) -> &'static Command {
@@ -1284,6 +1290,30 @@ pub static COMMANDS: &[Command] = &[
         prefixed('v', 'b'),
         ["checkout", "switch", "branch", "info"]
     ),
+    command!(
+        GitStageCurrent,
+        "vcs.stage-current",
+        "Stage Current File",
+        VersionControl,
+        prefixed('v', 'S'),
+        ["git", "stage", "index", "current", "file", "trusted"]
+    ),
+    command!(
+        GitUnstageCurrent,
+        "vcs.unstage-current",
+        "Unstage Current File",
+        VersionControl,
+        prefixed('v', 'U'),
+        ["git", "unstage", "index", "current", "file", "trusted"]
+    ),
+    command!(
+        GitCommitStaged,
+        "vcs.commit-staged",
+        "Commit Staged Changes",
+        VersionControl,
+        prefixed('v', 'c'),
+        ["git", "commit", "staged", "message", "trusted"]
+    ),
 ];
 
 /// Render the public command reference from the same registry used by the
@@ -1378,6 +1408,9 @@ fn hint_actions(prefix: PrefixState) -> &'static [Action] {
             Action::GitHead,
             Action::GitBlameLine,
             Action::Branches,
+            Action::GitStageCurrent,
+            Action::GitUnstageCurrent,
+            Action::GitCommitStaged,
         ],
     }
 }
@@ -1735,6 +1768,9 @@ mod tests {
             (prefixed('v', 'h'), Action::GitHead),
             (prefixed('v', 'a'), Action::GitBlameLine),
             (prefixed('v', 'b'), Action::Branches),
+            (prefixed('v', 'S'), Action::GitStageCurrent),
+            (prefixed('v', 'U'), Action::GitUnstageCurrent),
+            (prefixed('v', 'c'), Action::GitCommitStaged),
         ];
 
         assert_eq!(COMMANDS.len(), expected.len());
@@ -1772,7 +1808,6 @@ mod tests {
             "task.terminal-stop",
             "vcs.stage-current-file",
             "vcs.unstage-current-file",
-            "vcs.commit-staged",
             "vcs.checkout",
             "vcs.pull",
             "vcs.push",
@@ -1788,9 +1823,6 @@ mod tests {
             prefixed('t', 'p'),
             prefixed('t', 'P'),
             prefixed('t', 'S'),
-            prefixed('v', 'S'),
-            prefixed('v', 'U'),
-            prefixed('v', 'c'),
             prefixed('v', 'k'),
             prefixed('v', 'p'),
             prefixed('v', 'P'),

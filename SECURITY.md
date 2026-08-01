@@ -12,12 +12,12 @@ wscrpt runs on a development host and can edit files, run configured tasks, and 
 | --- | --- |
 | Language servers | Launched only from the user-owned global config (`~/.config/wscrpt/config.toml`). Project files cannot silently enable executables. |
 | Tasks | Defined in `.wscrpt/tasks.toml` as argument vectors (no shell string). Every run requires an explicit trust confirmation. |
-| Git | In-editor Git is read-only. Mutation happens in the full-screen workspace shell you start yourself. |
+| Git | Inspection is read-only. Stage/unstage current saved file and commit staged are fixed-argument, bounded, non-interactive workers that require trust every run because clean filters and commit hooks can execute repository code. Branch/network/destructive/arbitrary operations remain in the workspace shell. |
 | Clipboard | Optional OSC 52 attempts can be disabled (`--no-osc52` or config). |
 | Search / index | Filesystem traversal and result sizes are bounded; partial results are labeled. |
 | Remote preview and native iPad container | Opt-in sidecar; exact browser target/canvas; authenticated SSH control; loopback-only debugging/signaling; strict host-key pinning; Keychain-backed client credentials; and a view-only receiver. |
 
-Opening an untrusted repository should not auto-start untrusted language servers. It may still contain task definitions—do not approve trust for tasks you have not reviewed.
+Opening an untrusted repository should not auto-start untrusted language servers. It may still contain task definitions, Git filters, and commit hooks—do not approve task or Git trust prompts you have not reviewed.
 
 ## Reporting a vulnerability
 
@@ -44,6 +44,7 @@ You should receive an acknowledgment when the report is reviewed.
 
 - Keep language server `argv` minimal and absolute when possible.
 - Review `.wscrpt/tasks.toml` before first trust approval in a new clone.
+- Review repository filters/hooks before approving a Git operation; configured commit signing is refused in the non-interactive worker.
 - Prefer full-screen shell (`Esc t t`) for interactive or privileged work.
 - Run `wscrpt --health` on the real remote route before relying on clipboard or LSP.
 

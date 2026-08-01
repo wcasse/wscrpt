@@ -131,3 +131,6 @@ Enter the no-timeout action layer with `Esc` or `Ctrl-K`, then type the listed s
 | `Esc v h` | `vcs.head` | Git HEAD Commit |
 | `Esc v a` | `vcs.blame-line` | Git Blame Current Line |
 | `Esc v b` | `vcs.branches` | Git Branches |
+| `Esc v S` | `vcs.stage-current` | Stage Current File |
+| `Esc v U` | `vcs.unstage-current` | Unstage Current File |
+| `Esc v c` | `vcs.commit-staged` | Commit Staged Changes |

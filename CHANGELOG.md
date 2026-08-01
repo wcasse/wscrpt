@@ -2,10 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- Trusted local Git mutations return as a deliberately smaller surface: `Esc v S` / `:stage-current`, `Esc v U` / `:unstage-current`, and `Esc v c` / `:commit-staged`. They operate only on the current saved file or already staged index, run one at a time on bounded non-interactive workers, require trust every run because filters/hooks may execute, and refresh Git status after every outcome. Branch, network, discard/reset/clean, arbitrary-path, and signed-commit workflows remain in the workspace shell.
+
 ### Changed
 
 - The line-oriented action-layer shortcuts now use `Esc l` to select the current line or expand an existing selection to whole lines, and `Esc L` to toggle line numbers.
 - Host support is explicit: macOS and Linux remain the tested remote-host contract, WSL 2 is the practical Windows route, and native Windows is not claimed without terminal/process-tree CI.
+- Leaving the Action layer now arms one revision-driven acknowledgement: only the first successful document edit shows a steady 360 ms `EDIT*`/cursor cue; navigation, buffer changes, and rejected/read-only edits do not consume it.
 
 ## [0.2.1] - 2026-07-29
 
