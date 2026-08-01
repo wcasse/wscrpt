@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="wscrpt">
+  <rect width="512" height="512" fill="#0B0B0C"/>
+  <path d="M150 176 L108 256 L150 336" fill="none" stroke="#00FFFF"
+        stroke-width="28" stroke-linecap="square" stroke-linejoin="miter"/>
+  <!-- Launch raster exports use outlined mono w via Pillow; text here is fallback for SVG viewers -->
+  <text x="300" y="340" text-anchor="middle"
+        font-family="ui-monospace, SFMono-Regular, Menlo, monospace"
+        font-size="200" font-weight="500" fill="#F5F5F7">w</text>
+</svg>

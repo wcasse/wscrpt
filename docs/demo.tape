@@ -1,6 +1,7 @@
 # README demo — render with: vhs docs/demo.tape   (needs charmbracelet/vhs)
-# Re-record on each release so the GIF never drifts from the shipped UI.
-# Assumes a release build exists: cargo build --release
+# Re-record on each public install pin so the GIF never drifts from the shipped UI.
+# ALWAYS record from the install-pin binary (e.g. worktree at tag v0.2.2), never dirty main.
+# See docs/assets/README.md. Assumes: cargo build --release in that pin tree.
 
 Output docs/assets/demo.gif
 

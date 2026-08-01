@@ -4,11 +4,17 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![MSRV](https://img.shields.io/badge/MSRV-1.88-informational)](Cargo.toml)
 
-**Remote-first terminal IDE for real development hosts** — especially iPad + Magic Keyboard sessions over Blink, SSH, or mosh.
+**Terminal IDE for real hosts — made for iPad + Blink.**
+
+Remote-first terminal IDE for real development hosts — especially iPad + Magic Keyboard sessions over Blink, SSH, or mosh.
 
 Ordinary typing stays ordinary. `Esc` (or `Ctrl-K`) opens a **no-timeout** action layer that does not depend on Command-key chords or permanent panel clutter. After Action closes, the first real document edit gets one short, steady `EDIT*`/cursor acknowledgement; navigation and failed edits do not trigger it. Mouse reporting is **off by default** so Blink can keep native touch selection.
 
 Version **0.2** is a deliberate core: editing, workspace navigation/search, trusted tasks, recovery, sessions, Git inspection plus three trusted local mutations, bounded LSP, and a safe full-screen workspace shell. It is not a VS Code clone. See [CHANGELOG.md](CHANGELOG.md).
+
+Public install pin: **`v0.2.2`**. The key table and demo below match that tag — not whatever is on `main`.
+
+![wscrpt demo](docs/assets/demo.gif)
 
 ## Who this is for
 
@@ -125,8 +131,7 @@ Press and release `Esc`, then type a sequence. Prefixes wait indefinitely. `Ctrl
 | `Esc w t` / `Esc w S` | Workspace tree / sidebar |
 | `Esc w s` / `Esc w R` | Project search / refresh snapshots |
 | `Esc w k` / `Esc w K` | Toggle sticky notepad (top-right) / new sticky |
-| `Esc w a` / `Esc w x` / `Esc w D` | Agent run / cancel / Agents dashboard |
-| `Esc w C` / `Esc w Y` | Run sticky checklist / apply checks after review |
+| `Esc w a` / `Esc w x` | Agent run / cancel |
 | `Esc w D` | Toggle Agents dashboard (roster + receipt) |
 | `Esc c c` | LSP completion |
 | `Esc c p` | Unified LSP/task Problems |
@@ -154,6 +159,16 @@ Full list: [docs/COMMANDS.md](docs/COMMANDS.md) or `wscrpt --print-command-refer
 - Embedded / split terminals inside the TUI → use `Esc t t` / `:terminal`.
 - Project-wide replace, LSP rename, code actions, cross-file workspace edits → shell or trusted external tools.
 - Git branch/switch, push/pull/fetch, discard/reset/clean, signed commit, and arbitrary path mutation → workspace shell.
+
+## Honesty
+
+Read this before filing “make it like VS Code remote” issues.
+
+- **Install pin is `v0.2.2`.** Landing keys and the demo GIF match that tag. Features only on `main` (for example sticky checklist fan-out `Esc w C` / `Esc w Y`) are **not** part of the public install until a later tag.
+- **Agents are fake-by-default** on 0.2.2 — useful for UI/contracts; not an autonomous merge-push agent or “ACP out of the box.”
+- **previewd / native iPad harness** are contributor experiments; they are not what `cargo install … --tag v0.2.2` gives you.
+- **Not a full Git client**, not multi-file LSP refactor, not a GUI remote desktop.
+- Human confidence for every Blink/iPad combo is tracked in [docs/IPAD_BLINK_QA.md](docs/IPAD_BLINK_QA.md); treat wide recommendation as a confidence gate, not a guarantee of every client version.
 
 ## Configuration
 
