@@ -14,6 +14,7 @@
 
 - **Sticky pad paste:** while the pad is focused, paste inserts into the note body instead of the active document.
 - Incomplete `Esc w A` wiring that could leave the tree non-compiling during concurrent lane work.
+- **Sticky pad key routing (review follow-ups):** bare `[` / `]` type checklist markers; cycle notes with **Ctrl-P / Ctrl-N**. Action layer (Ctrl-K / Alt-chords) mirrors the editor — unknown keys cancel Action instead of editing the pad. Esc unfocus reports save failures. Delete only clears dirty after a successful library delete. Session restore of a visible pad loads a note. Narrow terminals unfocus an unpaintable pad. Card paint body-row math matches chrome (height − 4).
 
 ### Changed
 
