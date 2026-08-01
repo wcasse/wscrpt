@@ -1,11 +1,13 @@
-//! Markdown Stickies: spatial working notes with personal/team storage.
+//! Stickies: floating notepad / to-do pad subsystem for the TUI.
 //!
-//! Content lives in ordinary Markdown files with a small TOML front matter
-//! block. Team notes sit under `.wscrpt/stickies/` in the workspace. Personal
-//! notes and any future layout files live only under the XDG state directory
-//! so geometry never enters git.
+//! UX is a **toggleable card in the top-right** of the editor (Mac Stickies–
+//! style), not “open another markdown buffer.” Storage is still ordinary
+//! Markdown files with TOML front matter so notes survive restarts:
 //!
-//! This module does not render the TUI picker; `App` lists and opens notes.
+//! - team: `.wscrpt/stickies/<id>.md`
+//! - personal: `$XDG_STATE_HOME/wscrpt/stickies/<workspace-key>/<id>.md`
+//!
+//! Geometry for the floating card is session-local (visibility), not committed.
 
 use std::env;
 use std::fmt;
@@ -909,6 +911,532 @@ pub fn anchor_for_open_file(workspace_root: &Path, path: Option<&Path>) -> Stick
         };
     }
     StickyAnchor::Workspace
+}
+
+// ---------------------------------------------------------------------------
+// Floating pad (TUI subsystem)
+// ---------------------------------------------------------------------------
+
+/// Preferred pad size in terminal cells (renderer may shrink on small terminals).
+pub const STICKY_PAD_WIDTH: usize = 34;
+pub const STICKY_PAD_HEIGHT: usize = 12;
+/// Body rows inside the card (title + chrome use the rest).
+pub const STICKY_PAD_BODY_ROWS: usize = 7;
+
+/// In-memory floating sticky notepad. Storage is still [`StickyLibrary`].
+#[derive(Clone, Debug, Default)]
+pub struct StickyPad {
+    pub visible: bool,
+    pub focused: bool,
+    pub dirty: bool,
+    /// Working copy of the open note (None = empty shell, will create on save).
+    pub note: Option<StickyNote>,
+    /// Cursor as Unicode scalar index into `note.body_markdown`.
+    pub cursor: usize,
+    /// First body line shown when body overflows the card.
+    pub scroll: usize,
+    /// Active non-archived note ids for [ / ] cycling (personal + team).
+    pub roster: Vec<String>,
+    pub roster_index: usize,
+}
+
+/// One painted line of the floating card (renderer maps styles).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StickyPadLine {
+    pub text: String,
+    pub kind: StickyPadLineKind,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StickyPadLineKind {
+    Title,
+    Body,
+    BodyCursor,
+    Footer,
+    Border,
+}
+
+/// Layout box for painting (absolute screen rows/cols).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StickyPadFrame {
+    pub x: usize,
+    pub y: usize,
+    pub width: usize,
+    pub height: usize,
+}
+
+impl StickyPad {
+    pub fn is_active(&self) -> bool {
+        self.visible
+    }
+
+    pub fn is_focused(&self) -> bool {
+        self.visible && self.focused
+    }
+
+    /// Toggle show/hide. Showing focuses; hiding saves first.
+    pub fn toggle(&mut self, library: &StickyLibrary) -> Result<&'static str, StickyError> {
+        if self.visible && self.focused {
+            self.save_if_dirty(library)?;
+            self.visible = false;
+            self.focused = false;
+            Ok("Sticky pad hidden")
+        } else if self.visible {
+            self.focused = true;
+            Ok("Sticky pad focused — type to jot · Esc returns to editor")
+        } else {
+            self.refresh_roster(library);
+            if self.note.is_none() {
+                self.open_most_recent_or_blank(library)?;
+            }
+            self.visible = true;
+            self.focused = true;
+            Ok("Sticky pad open — type to jot · Esc editor · Esc w k hide")
+        }
+    }
+
+    pub fn show_new(
+        &mut self,
+        library: &StickyLibrary,
+        title: impl Into<String>,
+        anchor: StickyAnchor,
+    ) -> Result<(), StickyError> {
+        self.save_if_dirty(library)?;
+        let title = title.into();
+        let note = library.create(StickyStore::Personal, title, String::new(), anchor)?;
+        self.note = Some(note);
+        self.cursor = 0;
+        self.scroll = 0;
+        self.dirty = false;
+        self.visible = true;
+        self.focused = true;
+        self.refresh_roster(library);
+        if let Some(id) = self.note.as_ref().map(|n| n.id.clone())
+            && let Some(index) = self.roster.iter().position(|r| r == &id)
+        {
+            self.roster_index = index;
+        }
+        Ok(())
+    }
+
+    pub fn unfocus_save(&mut self, library: &StickyLibrary) -> Result<(), StickyError> {
+        self.save_if_dirty(library)?;
+        self.focused = false;
+        Ok(())
+    }
+
+    pub fn refresh_roster(&mut self, library: &StickyLibrary) {
+        let listing = library.list();
+        self.roster = listing
+            .notes
+            .into_iter()
+            .filter(|note| !note.archived)
+            .map(|note| note.id)
+            .collect();
+        if let Some(id) = self.note.as_ref().map(|n| n.id.as_str()) {
+            self.roster_index = self.roster.iter().position(|r| r == id).unwrap_or(0);
+        } else {
+            self.roster_index = 0;
+        }
+    }
+
+    fn open_most_recent_or_blank(&mut self, library: &StickyLibrary) -> Result<(), StickyError> {
+        self.refresh_roster(library);
+        if let Some(id) = self.roster.first().cloned() {
+            self.load_id(library, &id)?;
+        } else {
+            // Blank draft — materializes on first save.
+            let now = unix_now_ms();
+            self.note = Some(StickyNote {
+                id: generate_sticky_id(),
+                store: StickyStore::Personal,
+                title: "Sticky".to_owned(),
+                body_markdown: String::new(),
+                anchor: StickyAnchor::Workspace,
+                archived: false,
+                created_at_unix_ms: now,
+                updated_at_unix_ms: now,
+            });
+            self.dirty = true;
+            self.cursor = 0;
+            self.scroll = 0;
+            self.roster.clear();
+            self.roster_index = 0;
+        }
+        Ok(())
+    }
+
+    pub fn load_id(&mut self, library: &StickyLibrary, id: &str) -> Result<(), StickyError> {
+        self.save_if_dirty(library)?;
+        let note = library.load(id)?;
+        self.cursor = 0;
+        self.note = Some(note);
+        self.dirty = false;
+        self.scroll = 0;
+        self.refresh_roster(library);
+        Ok(())
+    }
+
+    pub fn cycle(&mut self, library: &StickyLibrary, delta: isize) -> Result<(), StickyError> {
+        self.refresh_roster(library);
+        if self.roster.is_empty() {
+            return Ok(());
+        }
+        let len = self.roster.len() as isize;
+        let next = (self.roster_index as isize + delta).rem_euclid(len) as usize;
+        let id = self.roster[next].clone();
+        self.load_id(library, &id)?;
+        self.roster_index = next;
+        Ok(())
+    }
+
+    pub fn save_if_dirty(&mut self, library: &StickyLibrary) -> Result<(), StickyError> {
+        if !self.dirty {
+            return Ok(());
+        }
+        let Some(note) = self.note.as_mut() else {
+            return Ok(());
+        };
+        note.updated_at_unix_ms = unix_now_ms();
+        // First save of a draft: ensure file exists via save (creates path).
+        library.save(note)?;
+        // Keep roster in sync for brand-new ids.
+        if !self.roster.iter().any(|id| id == &note.id) {
+            self.roster.insert(0, note.id.clone());
+            self.roster_index = 0;
+        }
+        self.dirty = false;
+        Ok(())
+    }
+
+    pub fn delete_current(&mut self, library: &StickyLibrary) -> Result<(), StickyError> {
+        let Some(id) = self.note.as_ref().map(|n| n.id.clone()) else {
+            return Ok(());
+        };
+        self.dirty = false;
+        library.delete(&id)?;
+        self.note = None;
+        self.cursor = 0;
+        self.scroll = 0;
+        self.refresh_roster(library);
+        if let Some(next) = self.roster.first().cloned() {
+            self.load_id(library, &next)?;
+        } else {
+            self.visible = false;
+            self.focused = false;
+        }
+        Ok(())
+    }
+
+    pub fn archive_current(&mut self, library: &StickyLibrary) -> Result<(), StickyError> {
+        self.save_if_dirty(library)?;
+        let Some(id) = self.note.as_ref().map(|n| n.id.clone()) else {
+            return Ok(());
+        };
+        library.archive(&id)?;
+        self.dirty = false;
+        self.note = None;
+        self.refresh_roster(library);
+        if let Some(next) = self.roster.first().cloned() {
+            self.load_id(library, &next)?;
+        } else {
+            self.visible = false;
+            self.focused = false;
+        }
+        Ok(())
+    }
+
+    /// Body text for editing.
+    pub fn body(&self) -> &str {
+        self.note
+            .as_ref()
+            .map(|n| n.body_markdown.as_str())
+            .unwrap_or("")
+    }
+
+    pub fn title(&self) -> &str {
+        self.note
+            .as_ref()
+            .map(|n| n.title.as_str())
+            .unwrap_or("Sticky")
+    }
+
+    fn body_mut(&mut self) -> &mut String {
+        &mut self
+            .note
+            .as_mut()
+            .expect("sticky pad body requires an open note")
+            .body_markdown
+    }
+
+    pub fn insert_char(&mut self, ch: char) {
+        if self.note.is_none() {
+            return;
+        }
+        if ch == '\0' || (ch.is_control() && ch != '\n' && ch != '\t') {
+            return;
+        }
+        if self.body().len() >= MAX_STICKY_BODY_BYTES {
+            return;
+        }
+        let cursor = self.cursor;
+        let body = self.body_mut();
+        let byte = char_to_byte(body, cursor);
+        body.insert(byte, ch);
+        self.cursor = cursor + 1;
+        self.dirty = true;
+        self.ensure_cursor_visible(STICKY_PAD_BODY_ROWS);
+    }
+
+    pub fn insert_str(&mut self, text: &str) {
+        for ch in text.chars() {
+            self.insert_char(ch);
+        }
+    }
+
+    pub fn backspace(&mut self) {
+        if self.note.is_none() || self.cursor == 0 {
+            return;
+        }
+        let body = self.body();
+        let prev = previous_grapheme_start(body, self.cursor);
+        let start = char_to_byte(body, prev);
+        let end = char_to_byte(body, self.cursor);
+        self.body_mut().replace_range(start..end, "");
+        self.cursor = prev;
+        self.dirty = true;
+        self.ensure_cursor_visible(STICKY_PAD_BODY_ROWS);
+    }
+
+    pub fn delete_forward(&mut self) {
+        if self.note.is_none() {
+            return;
+        }
+        let body = self.body();
+        let len = body.chars().count();
+        if self.cursor >= len {
+            return;
+        }
+        let next = next_grapheme_end(body, self.cursor);
+        let start = char_to_byte(body, self.cursor);
+        let end = char_to_byte(body, next);
+        self.body_mut().replace_range(start..end, "");
+        self.dirty = true;
+    }
+
+    pub fn move_left(&mut self) {
+        if self.note.is_none() {
+            return;
+        }
+        self.cursor = previous_grapheme_start(self.body(), self.cursor);
+        self.ensure_cursor_visible(STICKY_PAD_BODY_ROWS);
+    }
+
+    pub fn move_right(&mut self) {
+        if self.note.is_none() {
+            return;
+        }
+        self.cursor = next_grapheme_end(self.body(), self.cursor);
+        self.ensure_cursor_visible(STICKY_PAD_BODY_ROWS);
+    }
+
+    pub fn move_up(&mut self) {
+        if self.note.is_none() {
+            return;
+        }
+        let (line, col) = line_col(self.body(), self.cursor);
+        if line == 0 {
+            self.cursor = 0;
+        } else {
+            self.cursor = cursor_at_line_col(self.body(), line - 1, col);
+        }
+        self.ensure_cursor_visible(STICKY_PAD_BODY_ROWS);
+    }
+
+    pub fn move_down(&mut self) {
+        if self.note.is_none() {
+            return;
+        }
+        let (line, col) = line_col(self.body(), self.cursor);
+        let lines = self.body().lines().count().max(1);
+        if line + 1 >= lines {
+            self.cursor = self.body().chars().count();
+        } else {
+            self.cursor = cursor_at_line_col(self.body(), line + 1, col);
+        }
+        self.ensure_cursor_visible(STICKY_PAD_BODY_ROWS);
+    }
+
+    fn ensure_cursor_visible(&mut self, body_rows: usize) {
+        let (line, _) = line_col(self.body(), self.cursor);
+        if line < self.scroll {
+            self.scroll = line;
+        } else if line >= self.scroll + body_rows {
+            self.scroll = line + 1 - body_rows;
+        }
+    }
+
+    /// Build paint lines for the card interior (excluding outer border row math).
+    pub fn view_lines(&self, body_rows: usize, width: usize) -> Vec<StickyPadLine> {
+        let mut lines = Vec::new();
+        let dirty = if self.dirty { "*" } else { "" };
+        let focus = if self.focused { "· EDIT" } else { "" };
+        let index = if self.roster.is_empty() {
+            String::new()
+        } else {
+            format!(" {}/{}", self.roster_index + 1, self.roster.len())
+        };
+        let title = format!(" ☰ {}{}{} ", self.title(), dirty, focus);
+        lines.push(StickyPadLine {
+            text: truncate_pad(&title, width),
+            kind: StickyPadLineKind::Title,
+        });
+
+        let body = self.body();
+        let body_lines: Vec<&str> = if body.is_empty() {
+            vec![""]
+        } else {
+            body.lines().collect()
+        };
+        // Preserve trailing newline as empty last line for editing feel.
+        let body_lines = if body.ends_with('\n') {
+            let mut v = body_lines;
+            v.push("");
+            v
+        } else {
+            body_lines
+        };
+        let (cursor_line, cursor_col) = line_col(body, self.cursor);
+        for row in 0..body_rows {
+            let line_idx = self.scroll + row;
+            let text = body_lines.get(line_idx).copied().unwrap_or("");
+            let mut display = text.to_owned();
+            let kind = if self.focused && line_idx == cursor_line {
+                // Insert a block cursor glyph for the active line.
+                let mut chars: Vec<char> = display.chars().collect();
+                let col = cursor_col.min(chars.len());
+                chars.insert(col, '▌');
+                display = chars.into_iter().collect();
+                StickyPadLineKind::BodyCursor
+            } else {
+                StickyPadLineKind::Body
+            };
+            lines.push(StickyPadLine {
+                text: truncate_pad(&format!(" {display}"), width),
+                kind,
+            });
+        }
+
+        let footer = if self.focused {
+            format!(" Esc editor · [/] notes · ^S save{index} ")
+        } else {
+            format!(" Esc w k focus · Esc w K new{index} ")
+        };
+        lines.push(StickyPadLine {
+            text: truncate_pad(&footer, width),
+            kind: StickyPadLineKind::Footer,
+        });
+        lines
+    }
+
+    /// Compute top-right frame inside the editor content band.
+    pub fn frame_for(
+        layout_width: usize,
+        content_y: usize,
+        content_height: usize,
+    ) -> Option<StickyPadFrame> {
+        if layout_width < 48 || content_height < 8 {
+            return None;
+        }
+        let width = STICKY_PAD_WIDTH.min(layout_width.saturating_sub(4)).max(24);
+        let height = STICKY_PAD_HEIGHT
+            .min(content_height.saturating_sub(1))
+            .max(8);
+        let x = layout_width.saturating_sub(width).saturating_sub(1);
+        let y = content_y;
+        Some(StickyPadFrame {
+            x,
+            y,
+            width,
+            height,
+        })
+    }
+}
+
+fn truncate_pad(text: &str, width: usize) -> String {
+    if width == 0 {
+        return String::new();
+    }
+    let mut out = String::new();
+    let mut used = 0usize;
+    for ch in text.chars() {
+        let w = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+        if used + w > width {
+            break;
+        }
+        out.push(ch);
+        used += w;
+    }
+    while used < width {
+        out.push(' ');
+        used += 1;
+    }
+    out
+}
+
+fn char_to_byte(text: &str, char_index: usize) -> usize {
+    text.chars().take(char_index).map(|ch| ch.len_utf8()).sum()
+}
+
+fn previous_grapheme_start(text: &str, char_idx: usize) -> usize {
+    crate::text::previous_grapheme_start(text, char_idx)
+}
+
+fn next_grapheme_end(text: &str, char_idx: usize) -> usize {
+    crate::text::next_grapheme_end(text, char_idx)
+}
+
+fn line_col(text: &str, char_idx: usize) -> (usize, usize) {
+    let mut line = 0usize;
+    let mut col = 0usize;
+    for (i, ch) in text.chars().enumerate() {
+        if i >= char_idx {
+            break;
+        }
+        if ch == '\n' {
+            line += 1;
+            col = 0;
+        } else {
+            col += 1;
+        }
+    }
+    (line, col)
+}
+
+fn cursor_at_line_col(text: &str, target_line: usize, target_col: usize) -> usize {
+    let mut line = 0usize;
+    let mut col = 0usize;
+    for (i, ch) in text.chars().enumerate() {
+        if line == target_line && col == target_col {
+            return i;
+        }
+        if line > target_line {
+            return i.saturating_sub(1);
+        }
+        if ch == '\n' {
+            if line == target_line {
+                return i;
+            }
+            line += 1;
+            col = 0;
+        } else {
+            if line == target_line && col >= target_col {
+                return i;
+            }
+            col += 1;
+        }
+    }
+    text.chars().count()
 }
 
 #[cfg(test)]

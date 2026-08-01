@@ -83,6 +83,9 @@ pub struct LayoutFlags {
     /// Bottom agent dashboard panel (Grok Build–style roster strip).
     #[serde(default)]
     pub agent_dashboard_visible: bool,
+    /// Floating sticky notepad card (top-right).
+    #[serde(default)]
+    pub sticky_pad_visible: bool,
 }
 
 #[derive(Deserialize)]
@@ -139,6 +142,7 @@ impl From<LegacySessionV1> for Session {
                 problems_visible,
                 soft_wrap,
                 agent_dashboard_visible: false,
+                sticky_pad_visible: false,
             },
         }
     }
@@ -727,6 +731,7 @@ mod tests {
                 problems_visible: true,
                 soft_wrap: true,
                 agent_dashboard_visible: false,
+                sticky_pad_visible: false,
             },
         }
     }
@@ -787,6 +792,10 @@ mod tests {
         let mut legacy: toml::Value = toml::Value::try_from(&expected).unwrap();
         legacy["version"] = toml::Value::Integer(i64::from(LEGACY_SESSION_FORMAT_VERSION));
         let layout = legacy["layout"].as_table_mut().unwrap();
+        // Current layout flags are unknown to LegacyLayoutFlagsV1; drop them so
+        // the fixture matches the real v1 schema the migrator accepts.
+        layout.remove("agent_dashboard_visible");
+        layout.remove("sticky_pad_visible");
         layout.insert("terminal_visible".to_owned(), toml::Value::Boolean(true));
         layout.insert(
             "terminal_split_visible".to_owned(),

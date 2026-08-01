@@ -124,9 +124,9 @@ Press and release `Esc`, then type a sequence. Prefixes wait indefinitely. `Ctrl
 | `Esc /` / `Esc R` | Find / replace all in buffer |
 | `Esc w t` / `Esc w S` | Workspace tree / sidebar |
 | `Esc w s` / `Esc w R` | Project search / refresh snapshots |
-| `Esc w k` / `Esc w K` | Stickies list / new personal sticky |
-| `Esc w a` / `Esc w A` / `Esc w x` | Agent run / activity receipt / cancel |
-| `Esc w D` | Toggle agent dashboard (bottom strip) |
+| `Esc w k` / `Esc w K` | Toggle sticky notepad (top-right) / new sticky |
+| `Esc w a` / `Esc w x` | Agent run / cancel |
+| `Esc w D` | Toggle Agents dashboard (roster + receipt) |
 | `Esc c c` | LSP completion |
 | `Esc c p` | Unified LSP/task Problems |
 | `Esc t d` / `Esc t r` | Default task / task picker (trust-gated) |

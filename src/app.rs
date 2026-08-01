@@ -336,7 +336,6 @@ enum PromptFlow {
     WorkspaceOutline,
     Stickies,
     AgentGoal,
-    AgentActivity,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -372,7 +371,6 @@ enum PromptCompletion {
     SubmitWorkspaceSymbol(String),
     WorkspaceSymbolPending,
     StartAgent(String),
-    Dismiss,
 }
 
 impl PromptFlow {
@@ -415,7 +413,6 @@ impl PromptFlow {
             Self::WorkspaceOutline => " outline › ",
             Self::Stickies => " stickies (Enter open · A archive) › ",
             Self::AgentGoal => " agent goal › ",
-            Self::AgentActivity => " agent activity (Enter dismiss) › ",
         }
     }
 
@@ -494,7 +491,6 @@ impl PromptFlow {
             | Self::Stickies => {
                 PromptCompletion::Select(prompt.entries.get(prompt.selected).cloned())
             }
-            Self::AgentActivity => PromptCompletion::Dismiss,
             Self::AgentGoal => PromptCompletion::StartAgent(prompt.input.clone()),
             Self::Command => PromptCompletion::ExecuteCommand(prompt.input.clone()),
             Self::SaveAs => PromptCompletion::SaveAs(prompt.input.clone()),
@@ -931,6 +927,7 @@ pub struct App {
     lsp: LspState,
     tasks: TaskState,
     agent: AgentUiState,
+    sticky_pad: crate::stickies::StickyPad,
     persistence: PersistenceState,
     git: GitState,
     services: ServiceCoordinator,
@@ -1010,6 +1007,7 @@ impl App {
                 last_summary: None,
                 dashboard_visible: false,
             },
+            sticky_pad: crate::stickies::StickyPad::default(),
             lsp: LspState {
                 client: None,
                 server_name: None,
@@ -1192,6 +1190,9 @@ impl App {
         self.ui.soft_wrap = layout.soft_wrap;
         self.project.sidebar_visible = layout.workspace_tree_visible;
         self.agent.dashboard_visible = layout.agent_dashboard_visible;
+        self.sticky_pad.visible = layout.sticky_pad_visible;
+        // Restoring visibility does not steal focus from the editor.
+        self.sticky_pad.focused = false;
     }
 
     pub fn apply_session_recent_files(&mut self, recent_files: Vec<PathBuf>) {
@@ -1688,6 +1689,7 @@ impl App {
                 soft_wrap: self.ui.soft_wrap,
                 workspace_tree_visible: self.project.sidebar_visible,
                 agent_dashboard_visible: self.agent.dashboard_visible,
+                sticky_pad_visible: self.sticky_pad.visible,
                 ..LayoutFlags::default()
             },
         }
@@ -1948,7 +1950,6 @@ impl App {
             PromptFlow::WorkspaceSymbols => "WORKSPACE SYMBOLS",
             PromptFlow::WorkspaceOutline => "WORKSPACE OUTLINE",
             PromptFlow::Stickies => "STICKIES",
-            PromptFlow::AgentActivity => "AGENT ACTIVITY",
             _ => return None,
         };
         Some(OverlayView {
@@ -1969,6 +1970,7 @@ impl App {
 
     pub fn mode_label(&self) -> &'static str {
         match self.ui.mode {
+            UiMode::Edit if self.sticky_pad.is_focused() => "STICKY",
             UiMode::Edit if self.ui.keymap.is_active() => "ACTION",
             UiMode::Edit if self.workspace.active().document.is_read_only() => "VIEW",
             UiMode::Edit if self.edit_transition_cue_active() => "EDIT*",
@@ -2522,6 +2524,10 @@ impl App {
             UiMode::TaskTrust(name) => self.handle_task_trust_key(name, key),
             UiMode::GitTrust(mutation) => self.handle_git_trust_key(mutation, key),
             UiMode::Edit => {
+                if self.sticky_pad.is_focused() {
+                    self.handle_sticky_pad_key(key);
+                    return;
+                }
                 let before = self.active_editor_intent();
                 self.handle_edit_key(key);
                 if self.active_editor_intent() != before {
@@ -3066,7 +3072,6 @@ impl App {
             Action::Stickies => self.open_stickies(),
             Action::NewSticky => self.create_new_sticky(),
             Action::AgentRun => self.begin_agent_run_prompt(),
-            Action::AgentActivity => self.open_agent_activity(),
             Action::AgentCancel => self.cancel_agent_run(),
             Action::AgentDashboard => self.toggle_agent_dashboard(),
             Action::GlobalSearch if self.project.status.is_pending() => {
@@ -3473,18 +3478,6 @@ impl App {
             }
             PromptFlow::GlobalSearch => (Vec::new(), Vec::new()),
             PromptFlow::Stickies => self.sticky_candidates(&query),
-            PromptFlow::AgentActivity => {
-                let lines = crate::agent_runtime::format_receipt_lines(&self.agent.coordinator, 48);
-                let labels = lines
-                    .into_iter()
-                    .filter(|line| !line.is_empty())
-                    .collect::<Vec<_>>();
-                let entries = labels
-                    .iter()
-                    .map(|_| PromptEntry::Action(Action::AgentActivity))
-                    .collect();
-                (labels, entries)
-            }
             PromptFlow::AgentGoal => (Vec::new(), Vec::new()),
             PromptFlow::Tasks => self
                 .tasks
@@ -4034,17 +4027,18 @@ impl App {
                         self.open_workspace_outline_location(target)
                     }
                     Some(PromptEntry::TaskProblem(problem)) => self.open_task_problem(problem),
-                    Some(PromptEntry::Sticky { path, .. }) => {
-                        let origin = self.current_jump_location();
-                        match self.workspace.open(path) {
-                            Ok(_) => {
-                                self.cache_active_workspace_tree_path();
-                                self.record_jump_origin(origin);
-                                self.status("Opened sticky");
+                    Some(PromptEntry::Sticky { id, .. }) => match self.sticky_library() {
+                        Ok(library) => match self.sticky_pad.load_id(&library, &id) {
+                            Ok(()) => {
+                                self.sticky_pad.visible = true;
+                                self.sticky_pad.focused = true;
+                                self.ui.full_redraw = true;
+                                self.status("Sticky loaded into pad");
                             }
                             Err(error) => self.error(error.to_string()),
-                        }
-                    }
+                        },
+                        Err(error) => self.error(error),
+                    },
                     Some(PromptEntry::WorkspaceTree(_)) => {
                         unreachable!("workspace-tree prompts commit in their dedicated branch")
                     }
@@ -4185,10 +4179,6 @@ impl App {
                 self.ui.mode = UiMode::Edit;
                 self.start_agent_run(goal);
             }
-            PromptCompletion::Dismiss => {
-                self.ui.mode = UiMode::Edit;
-                self.ui.status = None;
-            }
         }
     }
 
@@ -4242,6 +4232,14 @@ impl App {
                 self.ui.status = None;
             }
             UiMode::Edit => {
+                if self.sticky_pad.is_focused() {
+                    if let Ok(library) = self.sticky_library() {
+                        let _ = self.sticky_pad.unfocus_save(&library);
+                    }
+                    self.ui.full_redraw = true;
+                    self.ui.status = None;
+                    return;
+                }
                 self.cancel_pending_lsp_ui_requests();
                 self.workspace.active_mut().clear_selection();
                 self.ui.search_query = None;
@@ -4494,7 +4492,6 @@ impl App {
             ExCommand::Stickies => self.open_stickies(),
             ExCommand::NewSticky => self.create_new_sticky(),
             ExCommand::AgentRun => self.begin_agent_run_prompt(),
-            ExCommand::AgentActivity => self.open_agent_activity(),
             ExCommand::AgentCancel => self.cancel_agent_run(),
             ExCommand::AgentDashboard => self.toggle_agent_dashboard(),
         }
@@ -10155,6 +10152,23 @@ impl App {
             .map_err(|error| error.to_string())
     }
 
+    pub fn sticky_pad_visible(&self) -> bool {
+        self.sticky_pad.visible
+    }
+
+    pub fn sticky_pad_focused(&self) -> bool {
+        self.sticky_pad.is_focused()
+    }
+
+    pub fn sticky_pad_view(
+        &self,
+        body_rows: usize,
+        width: usize,
+    ) -> Vec<crate::stickies::StickyPadLine> {
+        self.sticky_pad.view_lines(body_rows, width)
+    }
+
+    /// Toggle the floating top-right sticky notepad (not a buffer).
     fn open_stickies(&mut self) {
         let library = match self.sticky_library() {
             Ok(library) => library,
@@ -10163,24 +10177,13 @@ impl App {
                 return;
             }
         };
-        let listing = library.list();
-        if listing.notes.is_empty() && !listing.partial {
-            self.status("No stickies — Esc w K creates a personal note");
-            return;
-        }
-        self.begin_prompt(PromptFlow::Stickies);
-        if let UiMode::Prompt(prompt) = &mut self.ui.mode {
-            let mut notice =
-                "Enter opens · A archives · X deletes · filter by title · Esc cancels".to_owned();
-            if listing.partial {
-                notice.push_str(" · listing partial");
+        match self.sticky_pad.toggle(&library) {
+            Ok(message) => {
+                self.ui.full_redraw = true;
+                self.status(message);
             }
-            if let Some(warning) = listing.warnings.first() {
-                notice.push_str(&format!(" · {}", warning.message));
-            }
-            prompt.notice = Some(notice);
+            Err(error) => self.error(error.to_string()),
         }
-        self.refresh_prompt_candidates();
     }
 
     fn sticky_candidates(&self, query: &str) -> (Vec<String>, Vec<PromptEntry>) {
@@ -10202,6 +10205,7 @@ impl App {
             .unzip()
     }
 
+    /// Create a personal sticky and open it in the floating pad.
     fn create_new_sticky(&mut self) {
         let library = match self.sticky_library() {
             Ok(library) => library,
@@ -10216,36 +10220,117 @@ impl App {
             .document
             .path()
             .map(Path::to_path_buf);
-        let title = active_path
-            .as_deref()
-            .and_then(Path::file_name)
-            .map(|name| name.to_string_lossy().into_owned())
-            .filter(|name| !name.is_empty())
-            .unwrap_or_else(|| "Sticky".to_owned());
+        let title = "Sticky".to_owned();
         let anchor =
             crate::stickies::anchor_for_open_file(self.workspace_root(), active_path.as_deref());
-        let body = format!("# {title}\n\n");
-        match library.create(
-            crate::agent_contract::StickyStore::Personal,
-            title,
-            body,
-            anchor,
-        ) {
-            Ok(note) => match library.path_for(note.store, &note.id) {
-                Ok(path) => {
-                    let origin = self.current_jump_location();
-                    match self.workspace.open(path) {
-                        Ok(_) => {
-                            self.cache_active_workspace_tree_path();
-                            self.record_jump_origin(origin);
-                            self.status(format!("Created sticky {}", note.id));
-                        }
-                        Err(error) => self.error(error.to_string()),
-                    }
-                }
-                Err(error) => self.error(error.to_string()),
-            },
+        match self.sticky_pad.show_new(&library, title, anchor) {
+            Ok(()) => {
+                self.ui.full_redraw = true;
+                self.status("New sticky pad — type freely · Esc returns to editor");
+            }
             Err(error) => self.error(error.to_string()),
+        }
+    }
+
+    fn handle_sticky_pad_key(&mut self, key: KeyEvent) {
+        // Action layer still reachable? Prefer Esc unfocus; Ctrl-K can still enter action.
+        if let Some(normalized) = normalize_action_key(key, self.ui.keymap.is_active()) {
+            // Esc while focused unfocuses the pad (does not enter Action).
+            if matches!(normalized, crate::keymap::Key::Escape) && !self.ui.keymap.is_active() {
+                if let Ok(library) = self.sticky_library() {
+                    let _ = self.sticky_pad.unfocus_save(&library);
+                }
+                self.ui.full_redraw = true;
+                self.status("Sticky pad unfocused — Esc w k to hide or re-focus");
+                return;
+            }
+            if let Some(resolution) = self.ui.keymap.feed(normalized) {
+                self.apply_action_resolution(resolution);
+                return;
+            }
+        }
+
+        let Ok(library) = self.sticky_library() else {
+            self.error("Sticky storage unavailable");
+            return;
+        };
+
+        match key.code {
+            KeyCode::Esc => {
+                let _ = self.sticky_pad.unfocus_save(&library);
+                self.ui.full_redraw = true;
+                self.status("Sticky pad unfocused");
+            }
+            KeyCode::Enter => {
+                self.sticky_pad.insert_char('\n');
+                self.ui.full_redraw = true;
+            }
+            KeyCode::Backspace => {
+                self.sticky_pad.backspace();
+                self.ui.full_redraw = true;
+            }
+            KeyCode::Delete => {
+                self.sticky_pad.delete_forward();
+                self.ui.full_redraw = true;
+            }
+            KeyCode::Left => {
+                self.sticky_pad.move_left();
+                self.ui.full_redraw = true;
+            }
+            KeyCode::Right => {
+                self.sticky_pad.move_right();
+                self.ui.full_redraw = true;
+            }
+            KeyCode::Up => {
+                self.sticky_pad.move_up();
+                self.ui.full_redraw = true;
+            }
+            KeyCode::Down => {
+                self.sticky_pad.move_down();
+                self.ui.full_redraw = true;
+            }
+            KeyCode::Char('[') => {
+                if let Err(error) = self.sticky_pad.cycle(&library, -1) {
+                    self.error(error.to_string());
+                }
+                self.ui.full_redraw = true;
+            }
+            KeyCode::Char(']') => {
+                if let Err(error) = self.sticky_pad.cycle(&library, 1) {
+                    self.error(error.to_string());
+                }
+                self.ui.full_redraw = true;
+            }
+            KeyCode::Char(ch)
+                if !key.modifiers.intersects(
+                    KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER,
+                ) =>
+            {
+                self.sticky_pad.insert_char(ch);
+                self.ui.full_redraw = true;
+            }
+            KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                match self.sticky_pad.save_if_dirty(&library) {
+                    Ok(()) => self.status("Sticky saved"),
+                    Err(error) => self.error(error.to_string()),
+                }
+                self.ui.full_redraw = true;
+            }
+            KeyCode::Char('a') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                match self.sticky_pad.archive_current(&library) {
+                    Ok(()) => self.status("Sticky archived"),
+                    Err(error) => self.error(error.to_string()),
+                }
+                self.ui.full_redraw = true;
+            }
+            KeyCode::Char('x') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                match self.sticky_pad.delete_current(&library) {
+                    Ok(()) => self.status("Sticky deleted"),
+                    Err(error) => self.error(error.to_string()),
+                }
+                self.ui.full_redraw = true;
+            }
+            _ => {}
         }
     }
 
@@ -10321,15 +10406,20 @@ impl App {
         self.agent.dashboard_visible = !self.agent.dashboard_visible;
         self.ui.full_redraw = true;
         if self.agent.dashboard_visible {
-            self.status(
-                "Agent dashboard on — Esc w a dispatch · Esc w A receipt · Esc w x cancel · Esc w D hide",
-            );
+            self.status("Agents dashboard on — Esc w a dispatch · Esc w x cancel · Esc w D hide");
         } else {
-            self.status("Agent dashboard off");
+            self.status("Agents dashboard off");
         }
     }
 
-    /// Grok Build–inspired bottom roster: state icon, goal, last receipt lines.
+    /// True when the bottom strip should claim more vertical room (live run / receipt).
+    pub fn agent_dashboard_wants_depth(&self) -> bool {
+        self.agent.job.is_some()
+            || self.agent.coordinator.is_active()
+            || !self.agent.coordinator.receipt().is_empty()
+    }
+
+    /// Single Agents surface: roster + full receipt detail (replaces the old activity popup).
     pub fn agent_dashboard_view(&self, visible_rows: usize) -> AgentDashboardView {
         let mut lines = Vec::new();
         if visible_rows == 0 {
@@ -10366,6 +10456,11 @@ impl App {
                 if awaiting { "1 awaiting" } else { "live" },
                 crate::agent_runtime::run_state_label(state)
             )
+        } else if !self.agent.coordinator.receipt().is_empty() {
+            format!(
+                " AGENTS · last run · {}",
+                crate::agent_runtime::run_state_label(state)
+            )
         } else {
             " AGENTS · idle · Esc w a dispatch ".to_owned()
         };
@@ -10378,52 +10473,68 @@ impl App {
             return AgentDashboardView { lines };
         }
 
-        let session = self.agent.coordinator.active_session_id().unwrap_or("—");
-        let goal = self
-            .agent
-            .coordinator
-            .active_packet()
-            .map(|packet| packet.goal.as_str())
-            .or(self.agent.last_summary.as_deref())
-            .unwrap_or("no active work packet");
-        let goal_short = if goal.chars().count() > 48 {
-            let truncated: String = goal.chars().take(45).collect();
-            format!("{truncated}…")
-        } else {
-            goal.to_owned()
-        };
-        lines.push(AgentDashboardLine {
-            text: format!(" {icon} {session} · {goal_short}"),
-            emphasis: run_emphasis,
-        });
-
-        let receipt = self.agent.coordinator.receipt();
-        let receipt_budget = visible_rows.saturating_sub(lines.len()).saturating_sub(1);
-        if receipt_budget > 0 && !receipt.is_empty() {
-            let start = receipt.len().saturating_sub(receipt_budget);
-            for event in &receipt[start..] {
-                if lines.len() + 1 >= visible_rows {
-                    break;
-                }
-                let mut summary = event.summary.clone();
-                if summary.chars().count() > 56 {
-                    summary = summary.chars().take(53).collect::<String>() + "…";
-                }
-                lines.push(AgentDashboardLine {
-                    text: format!("   [{:>2}] {}", event.sequence, summary),
-                    emphasis: AgentDashboardEmphasis::Receipt,
-                });
+        // Body reuses the same detail formatter the activity popup used (session,
+        // gen, goal, authority, receipt with kind/path) so one surface owns it all.
+        let body_budget = visible_rows.saturating_sub(lines.len()).saturating_sub(1);
+        let receipt_event_limit = body_budget.clamp(4, 48);
+        let detail = crate::agent_runtime::format_receipt_lines(
+            &self.agent.coordinator,
+            receipt_event_limit,
+        );
+        let mut detail_lines: Vec<AgentDashboardLine> = Vec::new();
+        for (index, raw) in detail.into_iter().enumerate() {
+            if raw.is_empty() {
+                continue;
             }
-        } else if lines.len() < visible_rows.saturating_sub(1) {
-            lines.push(AgentDashboardLine {
+            let emphasis = if index == 0 {
+                run_emphasis
+            } else if raw.starts_with("goal:") || raw.starts_with("authority:") {
+                AgentDashboardEmphasis::RunIdle
+            } else if raw.starts_with("receipt")
+                || raw.trim_start().starts_with("path ")
+                || raw.contains("(empty)")
+            {
+                AgentDashboardEmphasis::Muted
+            } else {
+                AgentDashboardEmphasis::Receipt
+            };
+            let text = if index == 0 {
+                format!(" {icon} {raw}")
+            } else {
+                format!("   {raw}")
+            };
+            detail_lines.push(AgentDashboardLine { text, emphasis });
+        }
+        if detail_lines.is_empty() {
+            detail_lines.push(AgentDashboardLine {
                 text: "   (no receipt yet)".to_owned(),
                 emphasis: AgentDashboardEmphasis::Muted,
             });
         }
+        // Prefer session line + newest receipt tail when the panel is short.
+        if detail_lines.len() > body_budget && body_budget > 0 {
+            if body_budget == 1 {
+                detail_lines.truncate(1);
+            } else {
+                let head = detail_lines[0].clone();
+                let tail_take = body_budget.saturating_sub(1);
+                let start = detail_lines.len().saturating_sub(tail_take);
+                let mut packed = vec![head];
+                packed.extend(detail_lines.into_iter().skip(start.max(1)));
+                packed.truncate(body_budget);
+                detail_lines = packed;
+            }
+        }
+        for line in detail_lines {
+            if lines.len() + 1 >= visible_rows {
+                break;
+            }
+            lines.push(line);
+        }
 
         if lines.len() < visible_rows {
             lines.push(AgentDashboardLine {
-                text: " a run · A full · x cancel · D hide ".to_owned(),
+                text: " a run · x cancel · D hide ".to_owned(),
                 emphasis: AgentDashboardEmphasis::Hint,
             });
         }
@@ -10434,7 +10545,7 @@ impl App {
 
     fn begin_agent_run_prompt(&mut self) {
         if self.agent.job.is_some() && self.agent.coordinator.is_active() {
-            self.status("Agent already running — Esc w A for activity, Esc w x to cancel");
+            self.status("Agent already running — Esc w D for dashboard, Esc w x to cancel");
             return;
         }
         let readiness = crate::agent_auth::probe_agent(&self.config.agent);
@@ -10454,7 +10565,7 @@ impl App {
         self.begin_prompt(PromptFlow::AgentGoal);
         if let UiMode::Prompt(prompt) = &mut self.ui.mode {
             prompt.notice = Some(if self.config.agent.use_fake {
-                "Enter starts a plan-first fake agent run · Esc cancels · review via Esc w A / Esc w D"
+                "Enter starts a plan-first fake agent run · Esc cancels · progress on bottom Agents dashboard (Esc w D)"
                     .to_owned()
             } else {
                 format!(
@@ -10462,16 +10573,6 @@ impl App {
                     self.config.agent.profile
                 )
             });
-        }
-    }
-
-    fn open_agent_activity(&mut self) {
-        self.begin_prompt(PromptFlow::AgentActivity);
-        if let UiMode::Prompt(prompt) = &mut self.ui.mode {
-            let label = crate::agent_runtime::run_state_label(self.agent.coordinator.run_state());
-            prompt.notice = Some(format!(
-                "{label} · Enter dismisses · Esc w x cancels an active run"
-            ));
         }
     }
 
@@ -10535,7 +10636,7 @@ impl App {
             self.agent.dashboard_visible = true;
             self.ui.full_redraw = true;
         }
-        self.status("Agent run started — dashboard open · Esc w A full receipt · Esc w x cancel");
+        self.status("Agent run started — Agents dashboard open · Esc w x cancel · Esc w D hide");
     }
 
     fn cancel_agent_run(&mut self) {
@@ -10578,7 +10679,6 @@ impl App {
         let mut redraw = false;
         let mut finished = false;
         let mut finish_message = None;
-        let mut refresh_activity = false;
         for event in batch {
             match event {
                 crate::agent_runtime::AgentJobEvent::Event(event) => {
@@ -10591,20 +10691,13 @@ impl App {
                                 || outcome.run_state == crate::agent_contract::AgentRunState::Review
                             {
                                 self.status(format!(
-                                    "AGENT REVIEW: {summary} — Esc v s status · Esc v D diffs · Esc w A receipt"
+                                    "AGENT REVIEW: {summary} — Esc v s status · Esc v D diffs · Esc w D dashboard"
                                 ));
                             } else {
                                 let label =
                                     crate::agent_runtime::run_state_label(outcome.run_state);
                                 self.status(format!("{label}: {summary}"));
                             }
-                            refresh_activity = matches!(
-                                self.ui.mode,
-                                UiMode::Prompt(Prompt {
-                                    kind: PromptFlow::AgentActivity,
-                                    ..
-                                })
-                            );
                             redraw = true;
                         }
                         Err(error) => {
@@ -10625,7 +10718,7 @@ impl App {
                         format!("Agent finished with error: {error}")
                     } else {
                         format!(
-                            "Agent finished — {} — Esc w A receipt · Esc v s Git",
+                            "Agent finished — {} — Esc w D dashboard · Esc v s Git",
                             crate::agent_runtime::run_state_label(
                                 self.agent.coordinator.run_state()
                             )
@@ -10634,9 +10727,6 @@ impl App {
                     redraw = true;
                 }
             }
-        }
-        if refresh_activity {
-            self.refresh_prompt_candidates();
         }
         if finished {
             self.agent.job = None;

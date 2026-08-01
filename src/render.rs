@@ -24,7 +24,10 @@ const MAX_PROJECT_SIDEBAR_WIDTH: usize = 30;
 /// Bottom agent dashboard needs enough vertical chrome for editor + panel.
 const MIN_HEIGHT_FOR_AGENT_DASHBOARD: usize = 14;
 const MIN_AGENT_DASHBOARD_HEIGHT: usize = 5;
-const MAX_AGENT_DASHBOARD_HEIGHT: usize = 9;
+/// Compact roster height when idle / no receipt.
+const MAX_AGENT_DASHBOARD_HEIGHT_COMPACT: usize = 7;
+/// Deep strip for live runs / full receipt (replaces the old activity popup).
+const MAX_AGENT_DASHBOARD_HEIGHT_DEEP: usize = 18;
 
 /// A fixed twelve-step xterm-256 hue wheel for buffer tabs.
 ///
@@ -385,8 +388,15 @@ pub(crate) fn agent_dashboard_height(app: &App, layout: Layout) -> usize {
     {
         return 0;
     }
-    let target =
-        (layout.content_height / 4).clamp(MIN_AGENT_DASHBOARD_HEIGHT, MAX_AGENT_DASHBOARD_HEIGHT);
+    // Live run / non-empty receipt claims a larger share so the single Agents
+    // surface can show the full receipt detail that used to be a popup.
+    let (fraction_num, fraction_den, max_height) = if app.agent_dashboard_wants_depth() {
+        (2usize, 5usize, MAX_AGENT_DASHBOARD_HEIGHT_DEEP)
+    } else {
+        (1usize, 4usize, MAX_AGENT_DASHBOARD_HEIGHT_COMPACT)
+    };
+    let target = ((layout.content_height * fraction_num) / fraction_den)
+        .clamp(MIN_AGENT_DASHBOARD_HEIGHT, max_height);
     // Keep at least three editor content rows when the panel is open.
     target.min(layout.content_height.saturating_sub(3))
 }
@@ -439,6 +449,8 @@ fn build_frame(
     if agent_panel_height > 0 {
         paint_agent_dashboard(app, layout, agent_panel_height, &mut rows);
     }
+    // Sticky pad paints over the editor content band (top-right card).
+    paint_sticky_pad(app, content_layout, &mut rows);
     rows[layout.status_y] = build_status(app, layout.width);
     let prompt_window = app
         .prompt()
@@ -455,6 +467,9 @@ fn build_frame(
         Some((prompt_window.cursor_x as u16, layout.footer_y as u16))
     } else if app.is_help() || app.overlay().is_some() {
         None
+    } else if app.sticky_pad_focused() {
+        // Hide terminal cursor; pad draws an inline ▌ glyph.
+        None
     } else {
         editor_cursor(app, editor_layout, wrapped_rows.as_deref()).map(|(x, y)| {
             (
@@ -464,6 +479,102 @@ fn build_frame(
         })
     };
     (rows, cursor)
+}
+
+fn paint_sticky_pad(app: &App, content_layout: Layout, rows: &mut [Row]) {
+    if !app.sticky_pad_visible() {
+        return;
+    }
+    let Some(frame) = crate::stickies::StickyPad::frame_for(
+        content_layout.width,
+        content_layout.content_y,
+        content_layout.content_height,
+    ) else {
+        return;
+    };
+    // Classic sticky yellow (xterm-256) — reads as a pad, not an editor buffer.
+    let title = Style::new(Color::Black, Color::AnsiValue(178)).bold();
+    let body = Style::new(Color::Black, Color::AnsiValue(222));
+    let body_focus = Style::new(Color::Black, Color::AnsiValue(228));
+    let footer = Style::new(Color::AnsiValue(94), Color::AnsiValue(178));
+    let edge = Style::new(Color::AnsiValue(94), Color::AnsiValue(222));
+    let left_keep = Style::new(Color::Reset, Color::Reset);
+
+    let body_rows = frame.height.saturating_sub(3).max(3);
+    let inner_width = frame.width.saturating_sub(2);
+    let lines = app.sticky_pad_view(body_rows, inner_width);
+
+    let mut paint_y = |y: usize, text: &str, style: Style| {
+        if y >= rows.len() || y >= content_layout.content_y + content_layout.content_height {
+            return;
+        }
+        let existing = row_plain_text(&rows[y]);
+        let left = take_display_prefix(&existing, frame.x);
+        let mut new_row = Row::default();
+        if !left.is_empty() {
+            new_row.push(&left, left_keep);
+        }
+        new_row.push(sanitize_display_text(text), style);
+        new_row.pad_to(content_layout.width, left_keep);
+        rows[y] = new_row;
+    };
+
+    let top = format!("┌{}┐", "─".repeat(inner_width));
+    paint_y(frame.y, &top, edge);
+
+    for (index, line) in lines.iter().enumerate() {
+        let y = frame.y + 1 + index;
+        let style = match line.kind {
+            crate::stickies::StickyPadLineKind::Title => title,
+            crate::stickies::StickyPadLineKind::Body => body,
+            crate::stickies::StickyPadLineKind::BodyCursor => body_focus,
+            crate::stickies::StickyPadLineKind::Footer => footer,
+            crate::stickies::StickyPadLineKind::Border => edge,
+        };
+        // line.text is already width-padded by StickyPad::view_lines.
+        let mut inner = line.text.clone();
+        while UnicodeWidthStr::width(inner.as_str()) < inner_width {
+            inner.push(' ');
+        }
+        // Trim if display width overshot (wide glyphs).
+        while UnicodeWidthStr::width(inner.as_str()) > inner_width && !inner.is_empty() {
+            inner.pop();
+        }
+        while UnicodeWidthStr::width(inner.as_str()) < inner_width {
+            inner.push(' ');
+        }
+        paint_y(y, &format!("│{inner}│"), style);
+    }
+
+    let bottom_y = frame.y + 1 + lines.len();
+    let bottom = format!("└{}┘", "─".repeat(inner_width));
+    paint_y(bottom_y, &bottom, edge);
+}
+
+fn take_display_prefix(text: &str, cols: usize) -> String {
+    let mut out = String::new();
+    let mut used = 0usize;
+    for ch in text.chars() {
+        let w = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+        if used + w > cols {
+            break;
+        }
+        out.push(ch);
+        used += w;
+    }
+    while used < cols {
+        out.push(' ');
+        used += 1;
+    }
+    out
+}
+
+fn row_plain_text(row: &Row) -> String {
+    let mut text = String::new();
+    for span in &row.spans {
+        text.push_str(&span.text);
+    }
+    text
 }
 
 fn paint_agent_dashboard(app: &App, layout: Layout, panel_height: usize, rows: &mut [Row]) {

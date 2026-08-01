@@ -240,7 +240,6 @@ pub enum Action {
     Stickies,
     NewSticky,
     AgentRun,
-    AgentActivity,
     AgentCancel,
     AgentDashboard,
     Completion,
@@ -356,7 +355,6 @@ impl Action {
         Self::Stickies,
         Self::NewSticky,
         Self::AgentRun,
-        Self::AgentActivity,
         Self::AgentCancel,
         Self::AgentDashboard,
         Self::Completion,
@@ -1001,18 +999,18 @@ pub static COMMANDS: &[Command] = &[
     command!(
         Stickies,
         "workspace.stickies",
-        "Stickies",
+        "Toggle Sticky Pad",
         Workspace,
         prefixed('w', 'k'),
-        ["notes", "sticky", "memo", "markdown"]
+        ["notes", "sticky", "memo", "notepad", "todo", "pad"]
     ),
     command!(
         NewSticky,
         "workspace.new-sticky",
-        "New Sticky",
+        "New Sticky Pad Note",
         Workspace,
         prefixed('w', 'K'),
-        ["notes", "sticky", "memo", "create"]
+        ["notes", "sticky", "memo", "create", "notepad"]
     ),
     command!(
         AgentRun,
@@ -1021,14 +1019,6 @@ pub static COMMANDS: &[Command] = &[
         Workspace,
         prefixed('w', 'a'),
         ["agent", "ai", "plan", "grok", "packet"]
-    ),
-    command!(
-        AgentActivity,
-        "workspace.agent-activity",
-        "Agent Activity",
-        Workspace,
-        prefixed('w', 'A'),
-        ["agent", "receipt", "status", "review"]
     ),
     command!(
         AgentCancel,
@@ -1041,10 +1031,21 @@ pub static COMMANDS: &[Command] = &[
     command!(
         AgentDashboard,
         "workspace.agent-dashboard",
-        "Toggle Agent Dashboard",
+        "Toggle Agents Dashboard",
         Workspace,
         prefixed('w', 'D'),
-        ["agent", "dashboard", "panel", "sidebar", "roster", "grok"]
+        [
+            "agent",
+            "dashboard",
+            "panel",
+            "sidebar",
+            "roster",
+            "grok",
+            "activity",
+            "receipt",
+            "status",
+            "review"
+        ]
     ),
     command!(
         Completion,
@@ -1439,7 +1440,6 @@ fn hint_actions(prefix: PrefixState) -> &'static [Action] {
             Action::Stickies,
             Action::NewSticky,
             Action::AgentRun,
-            Action::AgentActivity,
             Action::AgentCancel,
             Action::AgentDashboard,
         ],
@@ -1801,7 +1801,6 @@ mod tests {
             (prefixed('w', 'k'), Action::Stickies),
             (prefixed('w', 'K'), Action::NewSticky),
             (prefixed('w', 'a'), Action::AgentRun),
-            (prefixed('w', 'A'), Action::AgentActivity),
             (prefixed('w', 'x'), Action::AgentCancel),
             (prefixed('w', 'D'), Action::AgentDashboard),
             (prefixed('c', 'c'), Action::Completion),
@@ -2149,10 +2148,11 @@ mod tests {
 
         keymap.feed(Key::Escape);
         keymap.feed(Key::Character('w'));
+        // Esc w A is intentionally unbound (Agents surface is the bottom dashboard).
         assert_eq!(
-            keymap.feed(Key::Character('x')),
+            keymap.feed(Key::Character('A')),
             Some(Resolution::Unknown(UnknownSequence {
-                sequence: prefixed('w', 'x')
+                sequence: prefixed('w', 'A')
             }))
         );
         assert_eq!(keymap.state(), PrefixState::Inactive);
