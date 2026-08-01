@@ -887,10 +887,10 @@ fn emit_tool_update(
 fn extract_tool_paths(update: &Value, cwd: &Path) -> Vec<PathBuf> {
     let mut paths = Vec::new();
     let mut push = |raw: &str| {
-        if let Some(relative) = relativize_workspace_path(raw, cwd) {
-            if !paths.iter().any(|existing| existing == &relative) {
-                paths.push(relative);
-            }
+        if let Some(relative) = relativize_workspace_path(raw, cwd)
+            && !paths.iter().any(|existing| existing == &relative)
+        {
+            paths.push(relative);
         }
     };
 
