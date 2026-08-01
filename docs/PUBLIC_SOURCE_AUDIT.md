@@ -42,32 +42,28 @@ scripts/audit-public-source.sh
 
 ## Reachable history boundary
 
-Reachable commit metadata contains a legacy personal address, and older file
-snapshots contain the local paths and host aliases removed from the current
-tip. A separate recognizable-secret scan found no hit in reachable commits.
-The public `v0.2.0` tag and existing clones also make a rewrite a coordinated
-publishing decision, not a cleanup side effect.
+**2026-08-01 (owner-authorized rewrite):** Reachable history was rewritten with
+`git filter-repo` to:
 
-No history rewrite was authorized or performed. Therefore:
+- replace author/committer personal mailboxes with the GitHub noreply form
+  (`163216174+wcasse@users.noreply.github.com`);
+- scrub absolute developer home directory paths from blob contents
+  (generic `/path/to/...` fixtures remain acceptable in docs).
 
-- publishing the current snapshot is suitable when the existing maintainer and
-  repository identity are intentionally public;
-- publishing this repository as anonymous history is **not** approved;
-- anonymous publication should use a reviewed history-free snapshot/new
-  repository, or a separately authorized rewrite with tag/clone coordination;
-  and
-- never use `git push --mirror` from the shared local object database. Local
-  experiment refs and unreachable objects are not part of an ordinary branch
-  push and should remain that way.
+`scripts/audit-public-source.sh` and `scripts/audit-public-source.sh --history`
+both pass on the rewritten tip. Existing clones of pre-rewrite history should
+re-clone or hard-reset to the new `main` / tags after the force-push.
 
-The stricter history check is:
+Still true:
+
+- never use `git push --mirror` from the shared local object database;
+- GitHub handle / repo URLs remain intentional publishing identity;
+- local backup ref: `backup/pre-privacy-rewrite-*` (local only, do not push).
 
 ```sh
+scripts/audit-public-source.sh
 scripts/audit-public-source.sh --history
 ```
-
-It is expected to remain red until the owner explicitly chooses and completes
-one of the history-publication paths above.
 
 ## Publication state at audit time
 
