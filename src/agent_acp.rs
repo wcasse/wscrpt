@@ -5,8 +5,8 @@
 //! into bounded [`AgentEvent`] receipts for the existing coordinator.
 //!
 //! This is intentionally thin: no full ACP SDK, no filesystem/terminal
-//! delegation yet, no permission UI (session is created without yolo by
-//! default so a future Needs You path can host approvals).
+//! delegation yet. Tool permission prompts (`session/request_permission`)
+//! surface as **Needs You** on the Agents dashboard (Y allow · N deny).
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -22,7 +22,10 @@ use serde_json::{Value, json};
 use crate::agent_contract::{
     AgentEvent, AgentEventKind, AgentRunState, MAX_SUMMARY_BYTES, unix_now_ms,
 };
-use crate::agent_runtime::{AgentEventPort, AgentJob, AgentJobEvent, EVENT_CAPACITY};
+use crate::agent_runtime::{
+    AgentEventPort, AgentJob, AgentJobEvent, EVENT_CAPACITY, PendingPermission, PermissionDecision,
+    PermissionOption,
+};
 use crate::lsp_discover::resolve_executable;
 
 const READ_IDLE: Duration = Duration::from_millis(40);
@@ -52,6 +55,7 @@ pub fn spawn_acp_agent(
     })?;
     let args: Vec<String> = argv[1..].to_vec();
     let (sender, receiver) = std::sync::mpsc::sync_channel(EVENT_CAPACITY);
+    let (permission_tx, permission_rx) = std::sync::mpsc::sync_channel(4);
     let cancel = Arc::new(AtomicBool::new(false));
     let cancel_flag = Arc::clone(&cancel);
     let child_pid = Arc::new(AtomicU32::new(0));
@@ -71,12 +75,13 @@ pub fn spawn_acp_agent(
                 sender,
                 cancel_flag,
                 child_pid_for_thread,
+                permission_rx,
             );
         })
         .map_err(|error| format!("spawn ACP worker thread: {error}"))?;
 
     Ok((
-        AgentJob::new(cancel, Some(child_pid), handle),
+        AgentJob::new(cancel, Some(child_pid), Some(permission_tx), handle),
         AgentEventPort::new(receiver),
     ))
 }
@@ -93,6 +98,7 @@ fn run_acp_session(
     sender: SyncSender<AgentJobEvent>,
     cancel: Arc<AtomicBool>,
     child_pid: Arc<AtomicU32>,
+    permission_rx: Receiver<PermissionDecision>,
 ) {
     let mut sequence = 0u64;
     let emit = |sequence: &mut u64,
@@ -365,15 +371,48 @@ fn run_acp_session(
             Ok(line) => match parse_line(&line) {
                 Ok(value) => {
                     if let Some(method) = value.get("method").and_then(Value::as_str) {
-                        handle_notification(
-                            method,
-                            value.get("params"),
-                            &mut sequence,
-                            &sender,
-                            workspace_id,
-                            &host_session_id,
-                            generation,
-                        );
+                        // Agent → client request (has id): permission prompt.
+                        if method == "session/request_permission"
+                            && let Some(request_id) = value.get("id").and_then(Value::as_u64)
+                        {
+                            if let Err(error) = handle_permission_request(
+                                request_id,
+                                value.get("params"),
+                                &mut stdin,
+                                &permission_rx,
+                                &cancel,
+                                &mut sequence,
+                                &sender,
+                                workspace_id,
+                                &host_session_id,
+                                generation,
+                            ) {
+                                if error == "cancelled" {
+                                    terminate_child(&mut child);
+                                    child_pid.store(0, Ordering::Release);
+                                    let _ = sender.send(AgentJobEvent::Finished {
+                                        cancelled: true,
+                                        error: None,
+                                    });
+                                    return;
+                                }
+                                finish_with_error(&mut child, &child_pid, &sender, false, error);
+                                return;
+                            }
+                            continue;
+                        }
+                        // Notifications (no id, or other methods).
+                        if value.get("id").is_none() {
+                            handle_notification(
+                                method,
+                                value.get("params"),
+                                &mut sequence,
+                                &sender,
+                                workspace_id,
+                                &host_session_id,
+                                generation,
+                            );
+                        }
                         continue;
                     }
                     if value.get("id").and_then(Value::as_u64) == Some(prompt_id) {
@@ -471,6 +510,168 @@ fn parse_line(line: &str) -> Result<Value, String> {
         return Err("empty ACP line".to_owned());
     }
     serde_json::from_str(trimmed).map_err(|error| format!("ACP JSON parse: {error}"))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn handle_permission_request(
+    request_id: u64,
+    params: Option<&Value>,
+    stdin: &mut impl Write,
+    permission_rx: &Receiver<PermissionDecision>,
+    cancel: &AtomicBool,
+    sequence: &mut u64,
+    sender: &SyncSender<AgentJobEvent>,
+    workspace_id: u64,
+    host_session_id: &str,
+    generation: u64,
+) -> Result<(), String> {
+    let params = params.cloned().unwrap_or(Value::Null);
+    let options = parse_permission_options(params.get("options"));
+    if options.is_empty() {
+        return Err("session/request_permission had no options".to_owned());
+    }
+    let tool_title = params
+        .pointer("/toolCall/title")
+        .or_else(|| params.pointer("/toolCall/fields/title"))
+        .and_then(Value::as_str)
+        .or_else(|| params.pointer("/toolCall/kind").and_then(Value::as_str))
+        .unwrap_or("tool");
+    let summary = format!("permission: {tool_title}");
+
+    // Receipt + Needs You state for the dashboard.
+    if *sequence < MAX_EMITTED_EVENTS {
+        *sequence = sequence.saturating_add(1);
+        let event = AgentEvent {
+            workspace_id,
+            session_id: host_session_id.to_owned(),
+            generation,
+            sequence: *sequence,
+            timestamp_unix_ms: unix_now_ms(),
+            kind: AgentEventKind::Approval,
+            summary: truncate_summary(summary.clone()),
+            path: None,
+            git_object: None,
+            artifact_ref: None,
+            check_ok: None,
+            run_state: Some(AgentRunState::NeedsYou),
+            sensitive: false,
+        };
+        let _ = sender.send(AgentJobEvent::Event(event));
+    }
+    let _ = sender.send(AgentJobEvent::PermissionNeeded(PendingPermission {
+        request_id,
+        summary: truncate_summary(summary),
+        options: options.clone(),
+    }));
+
+    // Wait for the TUI (or cancel).
+    let decision = loop {
+        if cancel.load(Ordering::Acquire) {
+            break PermissionDecision::Cancelled;
+        }
+        match permission_rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(decision) => break decision,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                break PermissionDecision::Cancelled;
+            }
+        }
+    };
+
+    let selected_id = match &decision {
+        PermissionDecision::Select { option_id } => Some(option_id.clone()),
+        PermissionDecision::Cancelled => None,
+    };
+    let result = match &decision {
+        PermissionDecision::Select { option_id } => json!({
+            "outcome": {
+                "outcome": "selected",
+                "optionId": option_id,
+            }
+        }),
+        PermissionDecision::Cancelled => json!({
+            "outcome": { "outcome": "cancelled" }
+        }),
+    };
+    write_response(stdin, request_id, result)?;
+
+    if selected_id.is_none() && cancel.load(Ordering::Acquire) {
+        return Err("cancelled".to_owned());
+    }
+
+    // After a selection, mark working again on the receipt.
+    if let Some(option_id) = selected_id
+        && *sequence < MAX_EMITTED_EVENTS
+    {
+        *sequence = sequence.saturating_add(1);
+        let event = AgentEvent {
+            workspace_id,
+            session_id: host_session_id.to_owned(),
+            generation,
+            sequence: *sequence,
+            timestamp_unix_ms: unix_now_ms(),
+            kind: AgentEventKind::Notice,
+            summary: truncate_summary(format!("permission answered · {option_id}")),
+            path: None,
+            git_object: None,
+            artifact_ref: None,
+            check_ok: None,
+            run_state: Some(AgentRunState::Working),
+            sensitive: false,
+        };
+        let _ = sender.send(AgentJobEvent::Event(event));
+    }
+    Ok(())
+}
+
+fn parse_permission_options(value: Option<&Value>) -> Vec<PermissionOption> {
+    let Some(Value::Array(items)) = value else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for item in items {
+        let option_id = item
+            .get("optionId")
+            .or_else(|| item.get("option_id"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned();
+        if option_id.is_empty() {
+            continue;
+        }
+        let name = item
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or(option_id.as_str())
+            .to_owned();
+        let kind = item
+            .get("kind")
+            .and_then(Value::as_str)
+            .unwrap_or("allow_once")
+            .to_owned();
+        out.push(PermissionOption {
+            option_id,
+            name,
+            kind,
+        });
+    }
+    out
+}
+
+fn write_response(stdin: &mut impl Write, id: u64, result: Value) -> Result<(), String> {
+    let payload = json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": result,
+    });
+    let mut line = payload.to_string();
+    line.push('\n');
+    stdin
+        .write_all(line.as_bytes())
+        .map_err(|error| format!("ACP write response: {error}"))?;
+    stdin
+        .flush()
+        .map_err(|error| format!("ACP flush response: {error}"))
 }
 
 fn handle_notification(
@@ -790,7 +991,9 @@ pub(crate) fn kill_agent_process_group(pid: u32) {
 mod tests {
     use super::*;
     use crate::agent::AgentCoordinator;
-    use crate::agent_runtime::{AgentJobEvent, new_session_id, work_packet_for_goal};
+    use crate::agent_runtime::{
+        AgentJobEvent, PermissionDecision, new_session_id, work_packet_for_goal,
+    };
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
     use std::sync::mpsc::TryRecvError;
@@ -824,6 +1027,22 @@ while True:
         write({"jsonrpc":"2.0","id":mid,"result":{"sessionId":"acp-test-session"}})
     elif method == "session/prompt":
         write({"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"plan","content":"1. inspect 2. edit"}}})
+        # Need-you: request permission and wait for client response before finishing.
+        write({"jsonrpc":"2.0","id":9001,"method":"session/request_permission","params":{
+            "sessionId":"acp-test-session",
+            "toolCall":{"title":"read Cargo.toml"},
+            "options":[
+                {"optionId":"allow-once","name":"Allow once","kind":"allow_once"},
+                {"optionId":"reject-once","name":"Reject once","kind":"reject_once"}
+            ]
+        }})
+        # block until permission response
+        while True:
+            resp = read()
+            if resp is None:
+                break
+            if resp.get("id") == 9001:
+                break
         write({"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"tool_call","title":"read Cargo.toml"}}})
         write({"jsonrpc":"2.0","id":mid,"result":{"stopReason":"end_turn"}})
         break
@@ -852,10 +1071,19 @@ while True:
             spawn_acp_agent(99, session, generation, temp.path(), &argv, "demo goal").unwrap();
 
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let mut saw_permission = false;
         loop {
             match port.try_recv() {
                 Ok(AgentJobEvent::Event(event)) => {
                     coordinator.admit(event).unwrap();
+                }
+                Ok(AgentJobEvent::PermissionNeeded(pending)) => {
+                    saw_permission = true;
+                    assert!(pending.options.iter().any(|option| option.is_allow()));
+                    job.reply_permission(PermissionDecision::Select {
+                        option_id: "allow-once".to_owned(),
+                    })
+                    .unwrap();
                 }
                 Ok(AgentJobEvent::Finished { cancelled, error }) => {
                     assert!(!cancelled, "error={error:?}");
@@ -876,6 +1104,7 @@ while True:
             }
         }
         drop(job);
+        assert!(saw_permission, "expected session/request_permission");
         assert_eq!(coordinator.run_state(), AgentRunState::Review);
         assert!(coordinator.receipt().len() >= 3);
     }

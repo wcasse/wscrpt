@@ -846,6 +846,8 @@ struct AgentUiState {
     last_summary: Option<String>,
     /// Bottom dashboard strip (toggle with Esc w D), inspired by Grok Build.
     dashboard_visible: bool,
+    /// ACP `session/request_permission` awaiting Y/N (Needs You).
+    pending_permission: Option<crate::agent_runtime::PendingPermission>,
 }
 
 /// One display row in the bottom agent dashboard.
@@ -1006,6 +1008,7 @@ impl App {
                 port: None,
                 last_summary: None,
                 dashboard_visible: false,
+                pending_permission: None,
             },
             sticky_pad: crate::stickies::StickyPad::default(),
             lsp: LspState {
@@ -2528,6 +2531,24 @@ impl App {
                     self.handle_sticky_pad_key(key);
                     return;
                 }
+                // Needs You: Y allow / N deny for ACP tool permission (dashboard).
+                if self.agent.pending_permission.is_some()
+                    && !key
+                        .modifiers
+                        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER)
+                {
+                    match key.code {
+                        KeyCode::Char('y') | KeyCode::Char('Y') => {
+                            self.answer_agent_permission(true);
+                            return;
+                        }
+                        KeyCode::Char('n') | KeyCode::Char('N') => {
+                            self.answer_agent_permission(false);
+                            return;
+                        }
+                        _ => {}
+                    }
+                }
                 let before = self.active_editor_intent();
                 self.handle_edit_key(key);
                 if self.active_editor_intent() != before {
@@ -3072,6 +3093,7 @@ impl App {
             Action::Stickies => self.open_stickies(),
             Action::NewSticky => self.create_new_sticky(),
             Action::AgentRun => self.begin_agent_run_prompt(),
+            Action::AgentApprove => self.answer_agent_permission(true),
             Action::AgentCancel => self.cancel_agent_run(),
             Action::AgentDashboard => self.toggle_agent_dashboard(),
             Action::GlobalSearch if self.project.status.is_pending() => {
@@ -10416,6 +10438,7 @@ impl App {
     pub fn agent_dashboard_wants_depth(&self) -> bool {
         self.agent.job.is_some()
             || self.agent.coordinator.is_active()
+            || self.agent.pending_permission.is_some()
             || !self.agent.coordinator.receipt().is_empty()
     }
 
@@ -10445,12 +10468,17 @@ impl App {
             _ => ("○", AgentDashboardEmphasis::RunIdle),
         };
 
-        let awaiting = matches!(
-            state,
-            crate::agent_contract::AgentRunState::NeedsYou
-                | crate::agent_contract::AgentRunState::Review
-        );
-        let header = if active || job_live {
+        let needs_you = self.agent.pending_permission.is_some()
+            || matches!(state, crate::agent_contract::AgentRunState::NeedsYou);
+        let awaiting = needs_you || matches!(state, crate::agent_contract::AgentRunState::Review);
+        let header = if needs_you {
+            format!(
+                " AGENTS · 1 awaiting · {}",
+                crate::agent_runtime::run_state_label(
+                    crate::agent_contract::AgentRunState::NeedsYou
+                )
+            )
+        } else if active || job_live {
             format!(
                 " AGENTS · 1 session · {} · {}",
                 if awaiting { "1 awaiting" } else { "live" },
@@ -10470,6 +10498,37 @@ impl App {
         });
 
         if lines.len() >= visible_rows {
+            return AgentDashboardView { lines };
+        }
+
+        if let Some(pending) = &self.agent.pending_permission {
+            lines.push(AgentDashboardLine {
+                text: format!(" ● NEED YOU · {}", pending.summary),
+                emphasis: AgentDashboardEmphasis::RunNeedsYou,
+            });
+            for option in &pending.options {
+                if lines.len() + 1 >= visible_rows {
+                    break;
+                }
+                let tag = if option.is_allow() {
+                    "Y"
+                } else if option.is_reject() {
+                    "N"
+                } else {
+                    "·"
+                };
+                lines.push(AgentDashboardLine {
+                    text: format!("   [{tag}] {} ({})", option.name, option.kind),
+                    emphasis: AgentDashboardEmphasis::Receipt,
+                });
+            }
+            if lines.len() < visible_rows {
+                lines.push(AgentDashboardLine {
+                    text: " Y allow · N deny · Esc w A allow · Esc w x cancel ".to_owned(),
+                    emphasis: AgentDashboardEmphasis::Hint,
+                });
+            }
+            lines.truncate(visible_rows);
             return AgentDashboardView { lines };
         }
 
@@ -10676,11 +10735,61 @@ impl App {
         let cancelled = self.agent.coordinator.cancel_run();
         self.agent.job = None;
         self.agent.port = None;
+        self.agent.pending_permission = None;
         if cancelled.is_some() {
             self.agent.last_summary = Some("agent cancelled".to_owned());
             self.status("Agent cancelled");
         } else {
             self.status("No active agent run");
+        }
+    }
+
+    /// Answer a pending ACP permission prompt (Needs You).
+    fn answer_agent_permission(&mut self, allow: bool) {
+        let Some(pending) = self.agent.pending_permission.clone() else {
+            self.status("No agent permission waiting");
+            return;
+        };
+        let choice = if allow {
+            pending
+                .options
+                .iter()
+                .find(|option| option.is_allow())
+                .or_else(|| pending.options.first())
+        } else {
+            pending
+                .options
+                .iter()
+                .find(|option| option.is_reject())
+                .or_else(|| pending.options.last())
+        };
+        let Some(option) = choice else {
+            self.error("permission prompt has no options");
+            return;
+        };
+        let option_id = option.option_id.clone();
+        let name = option.name.clone();
+        let Some(job) = &self.agent.job else {
+            self.agent.pending_permission = None;
+            self.error("agent job gone; permission dropped");
+            return;
+        };
+        match job.reply_permission(crate::agent_runtime::PermissionDecision::Select {
+            option_id: option_id.clone(),
+        }) {
+            Ok(()) => {
+                self.agent.pending_permission = None;
+                self.agent.last_summary = Some(format!("permission: {name}"));
+                self.status(format!(
+                    "AGENT: {} — {name}",
+                    if allow { "allowed" } else { "denied" }
+                ));
+                self.ui.full_redraw = true;
+            }
+            Err(error) => {
+                self.agent.pending_permission = None;
+                self.error(error);
+            }
         }
     }
 
@@ -10740,6 +10849,18 @@ impl App {
                     self.status(message);
                     redraw = true;
                 }
+                crate::agent_runtime::AgentJobEvent::PermissionNeeded(pending) => {
+                    self.agent.pending_permission = Some(pending.clone());
+                    if !self.agent.dashboard_visible {
+                        self.agent.dashboard_visible = true;
+                        self.ui.full_redraw = true;
+                    }
+                    self.status(format!(
+                        "AGENT NEED YOU: {} — Y allow · N deny · Esc w A allow · Esc w x cancel",
+                        pending.summary
+                    ));
+                    redraw = true;
+                }
                 crate::agent_runtime::AgentJobEvent::Finished { cancelled, error } => {
                     finished = true;
                     finish_message = Some(if cancelled {
@@ -10761,6 +10882,7 @@ impl App {
         if finished {
             self.agent.job = None;
             self.agent.port = None;
+            self.agent.pending_permission = None;
             if let Some(message) = finish_message {
                 self.status(message);
             }

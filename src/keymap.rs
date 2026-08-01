@@ -240,6 +240,7 @@ pub enum Action {
     Stickies,
     NewSticky,
     AgentRun,
+    AgentApprove,
     AgentCancel,
     AgentDashboard,
     Completion,
@@ -355,6 +356,7 @@ impl Action {
         Self::Stickies,
         Self::NewSticky,
         Self::AgentRun,
+        Self::AgentApprove,
         Self::AgentCancel,
         Self::AgentDashboard,
         Self::Completion,
@@ -1021,6 +1023,14 @@ pub static COMMANDS: &[Command] = &[
         ["agent", "ai", "plan", "grok", "packet"]
     ),
     command!(
+        AgentApprove,
+        "workspace.agent-approve",
+        "Approve Agent Permission",
+        Workspace,
+        prefixed('w', 'A'),
+        ["agent", "allow", "approve", "permission", "needs-you", "y"]
+    ),
+    command!(
         AgentCancel,
         "workspace.agent-cancel",
         "Cancel Agent",
@@ -1440,6 +1450,7 @@ fn hint_actions(prefix: PrefixState) -> &'static [Action] {
             Action::Stickies,
             Action::NewSticky,
             Action::AgentRun,
+            Action::AgentApprove,
             Action::AgentCancel,
             Action::AgentDashboard,
         ],
@@ -1801,6 +1812,7 @@ mod tests {
             (prefixed('w', 'k'), Action::Stickies),
             (prefixed('w', 'K'), Action::NewSticky),
             (prefixed('w', 'a'), Action::AgentRun),
+            (prefixed('w', 'A'), Action::AgentApprove),
             (prefixed('w', 'x'), Action::AgentCancel),
             (prefixed('w', 'D'), Action::AgentDashboard),
             (prefixed('c', 'c'), Action::Completion),
@@ -2148,11 +2160,11 @@ mod tests {
 
         keymap.feed(Key::Escape);
         keymap.feed(Key::Character('w'));
-        // Esc w A is intentionally unbound (Agents surface is the bottom dashboard).
+        // Esc w Z remains unbound under workspace (A is agent-approve).
         assert_eq!(
-            keymap.feed(Key::Character('A')),
+            keymap.feed(Key::Character('Z')),
             Some(Resolution::Unknown(UnknownSequence {
-                sequence: prefixed('w', 'A')
+                sequence: prefixed('w', 'Z')
             }))
         );
         assert_eq!(keymap.state(), PrefixState::Inactive);

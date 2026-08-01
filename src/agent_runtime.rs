@@ -29,11 +29,49 @@ pub enum AgentJobEvent {
     Event(AgentEvent),
     /// Non-fatal notice for the status line.
     Notice(String),
+    /// ACP `session/request_permission` — user must choose (Needs You).
+    PermissionNeeded(PendingPermission),
     /// Job ended (success, cancel, or failure after the last event).
     Finished {
         cancelled: bool,
         error: Option<String>,
     },
+}
+
+/// One option from an ACP permission prompt.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PermissionOption {
+    pub option_id: String,
+    pub name: String,
+    /// ACP kind: `allow_once`, `allow_always`, `reject_once`, `reject_always`.
+    pub kind: String,
+}
+
+impl PermissionOption {
+    pub fn is_allow(&self) -> bool {
+        self.kind.starts_with("allow")
+    }
+
+    pub fn is_reject(&self) -> bool {
+        self.kind.starts_with("reject")
+    }
+}
+
+/// Pending tool permission awaiting a human decision on the Agents dashboard.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PendingPermission {
+    pub request_id: u64,
+    pub summary: String,
+    pub options: Vec<PermissionOption>,
+}
+
+/// User decision for a pending ACP permission request.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PermissionDecision {
+    /// Selected one of the offered option ids.
+    Select { option_id: String },
+    /// Prompt cancelled (maps to ACP `cancelled` outcome).
+    Cancelled,
 }
 
 /// Handle for one in-flight agent job.
@@ -42,6 +80,8 @@ pub struct AgentJob {
     cancel: Arc<AtomicBool>,
     /// Live ACP process group leader pid (0 / absent for fake jobs).
     pub(crate) child_pid: Option<Arc<AtomicU32>>,
+    /// Reply path for ACP permission prompts (process jobs only).
+    permission_tx: Option<SyncSender<PermissionDecision>>,
     _handle: JoinHandle<()>,
 }
 
@@ -49,23 +89,37 @@ impl AgentJob {
     pub(crate) fn new(
         cancel: Arc<AtomicBool>,
         child_pid: Option<Arc<AtomicU32>>,
+        permission_tx: Option<SyncSender<PermissionDecision>>,
         handle: JoinHandle<()>,
     ) -> Self {
         Self {
             cancel,
             child_pid,
+            permission_tx,
             _handle: handle,
         }
     }
 
     pub fn cancel(&self) {
         self.cancel.store(true, Ordering::Release);
+        if let Some(tx) = &self.permission_tx {
+            let _ = tx.try_send(PermissionDecision::Cancelled);
+        }
         if let Some(pid_cell) = &self.child_pid {
             let pid = pid_cell.load(Ordering::Acquire);
             if pid != 0 {
                 crate::agent_acp::kill_agent_process_group(pid);
             }
         }
+    }
+
+    /// Reply to a pending ACP permission prompt (Needs You).
+    pub fn reply_permission(&self, decision: PermissionDecision) -> Result<(), String> {
+        let Some(tx) = &self.permission_tx else {
+            return Err("no live ACP permission channel".to_owned());
+        };
+        tx.send(decision)
+            .map_err(|_| "ACP permission waiter gone".to_owned())
     }
 
     pub fn is_cancelled(&self) -> bool {
@@ -114,7 +168,7 @@ pub fn spawn_fake_agent(
         })
         .expect("spawn fake agent thread");
     (
-        AgentJob::new(cancel, None, handle),
+        AgentJob::new(cancel, None, None, handle),
         AgentEventPort::new(receiver),
     )
 }
@@ -322,6 +376,9 @@ mod tests {
                     break;
                 }
                 Ok(AgentJobEvent::Notice(_)) => {}
+                Ok(AgentJobEvent::PermissionNeeded(_)) => {
+                    panic!("fake agent does not request permission")
+                }
                 Err(TryRecvError::Empty) => {
                     if std::time::Instant::now() > deadline {
                         panic!("timeout waiting for fake agent");

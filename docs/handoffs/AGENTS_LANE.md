@@ -32,18 +32,17 @@ No separate Agent Activity popup. Receipt/detail lives in the dashboard via `for
 | Activity popup removed | Done |
 | Host auth readiness (no secrets) | Done |
 | Live ACP stdio process wire | **Done (minimal)** — initialize / session/new / session/prompt; plan + tool_call → receipt; cancel kills process group |
-| Needs You permission prompts | Open (no FS/terminal delegation; no yolo by default) |
+| Needs You permission prompts | **Done** — dashboard + Y/N / Esc w A allow; ACP `session/request_permission` |
 | Dirty-tree protection / worktree isolation | Open |
 | Full process/PTY restore polish | Partial (process group kill on cancel) |
 | Review packet object (W3) | Open |
 
 ## Next work (priority order)
 
-1. **Needs You** — map ACP permission requests to dashboard emphasis + status; no second modal if the dashboard can host it.
-2. **Dirty-tree gate** — refuse or confirm before run when workspace dirty (roadmap gate).
-3. **Richer update mapping** — path-touched from tool payloads when in scope; optional message-chunk coalesce.
-4. **Review handoff** — strengthen “open Git status / diffs” from Review state without inventing a new VCS UI.
-5. Keep dashboard the single surface; expand depth/content only.
+1. **Dirty-tree gate** — refuse or confirm before run when workspace dirty (roadmap gate).
+2. **Richer update mapping** — path-touched from tool payloads when in scope; optional message-chunk coalesce.
+3. **Review handoff** — strengthen “open Git status / diffs” from Review state without inventing a new VCS UI.
+4. Keep dashboard the single surface; expand depth/content only.
 
 ## Do not
 
@@ -71,5 +70,6 @@ cargo test --all-targets --all-features --locked
 
 ## Log
 
+- **2026-08-01:** Needs You: ACP permission prompts on dashboard; Y/N + `Esc w A` allow.
 - **2026-08-01:** ACP process wire: `src/agent_acp.rs` + `spawn_process_agent`; fake path remains default; dep `serde_json`.
 - **2026-08-01:** Lane ownership established; worktree `wscrpt-agents` on `agents/w2-lane`; dashboard consolidation leftovers on `main` (`f7d76fd`).
