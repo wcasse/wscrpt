@@ -8,7 +8,7 @@
 
 `App` is the runtime and renderer façade. Its top-level state is grouped into:
 
-- `UiState`: prompts, keymap, status, redraw state, editing search, navigation history, bookmarks, and terminal handoff intent.
+- `UiState`: prompts, keymap, status, redraw state, editing search, navigation history, bookmarks, terminal handoff intent, and the revision-driven first-edit transition cue. Action exit arms the cue; only a changed document state ID consumes it, and the event loop paints onset and one 360 ms expiry rather than animating continuously.
 - `ProjectState`: immutable index/tree snapshots, explicit refresh state, search worker, and sidebar state.
 - `LspState`: one configured service, synchronized-document registry, requests, diagnostics, capabilities, quarantine, and logs.
 - `TaskState`: trusted task configuration/runner, active process, bounded output, and last task.

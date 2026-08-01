@@ -84,6 +84,8 @@ const MAX_BOOKMARKS: usize = 256;
 const MAX_CLOSED_BUFFER_HISTORY: usize = 32;
 /// Cap background-service paints (~15 fps) so mosh/Blink stay responsive.
 const BACKGROUND_REDRAW_MIN_INTERVAL: Duration = Duration::from_millis(66);
+/// One steady, non-oscillating cue after the first edit following Action exit.
+const EDIT_TRANSITION_CUE_DURATION: Duration = Duration::from_millis(360);
 
 #[derive(Clone, Debug)]
 struct Status {
@@ -673,6 +675,7 @@ struct UiState {
     save_all_after_save_as: bool,
     close_after_save_as: bool,
     full_redraw: bool,
+    edit_transition: EditTransitionFeedback,
     screen_size: (u16, u16),
     mouse_selecting: bool,
     viewport_scroll_pending: bool,
@@ -689,6 +692,20 @@ struct UiState {
     jump_forward: Vec<JumpLocation>,
     bookmarks: Vec<JumpLocation>,
     closed_buffers: Vec<ClosedBufferState>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct DocumentStateStamp {
+    editor_id: u64,
+    state_id: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct EditTransitionFeedback {
+    /// Action has ended; wait for the first real document revision.
+    armed: Option<DocumentStateStamp>,
+    /// The one-shot visual acknowledgement is active until this deadline.
+    cue_until: Option<Instant>,
 }
 
 impl UiState {
@@ -892,6 +909,7 @@ impl App {
                 save_all_after_save_as: false,
                 close_after_save_as: false,
                 full_redraw: true,
+                edit_transition: EditTransitionFeedback::default(),
                 screen_size: (80, 24),
                 mouse_selecting: false,
                 viewport_scroll_pending: false,
@@ -1624,6 +1642,7 @@ impl App {
     /// Prefer a short poll while background I/O may produce UI updates.
     pub fn wants_frequent_poll(&self) -> bool {
         self.ui.pending_background_redraw
+            || self.ui.edit_transition.cue_until.is_some()
             || self.lsp.client.is_some()
             || self.tasks.is_running()
             || self.project.search_worker.is_some()
@@ -1688,6 +1707,37 @@ impl App {
 
     pub fn status_is_error(&self) -> bool {
         self.ui.status.as_ref().is_some_and(|status| status.error)
+    }
+
+    pub(crate) fn edit_transition_cue_active(&self) -> bool {
+        self.edit_transition_cue_active_at(Instant::now())
+    }
+
+    fn edit_transition_cue_active_at(&self, now: Instant) -> bool {
+        matches!(self.ui.mode, UiMode::Edit)
+            && !self.ui.keymap.is_active()
+            && self
+                .ui
+                .edit_transition
+                .cue_until
+                .is_some_and(|deadline| now < deadline)
+    }
+
+    /// Expire the one-shot cue without driving continuous paints while it is visible.
+    pub fn poll_ui_transients(&mut self) -> bool {
+        self.poll_ui_transients_at(Instant::now())
+    }
+
+    fn poll_ui_transients_at(&mut self, now: Instant) -> bool {
+        let expired = self
+            .ui
+            .edit_transition
+            .cue_until
+            .is_some_and(|deadline| now >= deadline);
+        if expired {
+            self.ui.edit_transition.cue_until = None;
+        }
+        expired
     }
 
     pub fn search_match(&self) -> Option<Range<usize>> {
@@ -1841,6 +1891,7 @@ impl App {
         match self.ui.mode {
             UiMode::Edit if self.ui.keymap.is_active() => "ACTION",
             UiMode::Edit if self.workspace.active().document.is_read_only() => "VIEW",
+            UiMode::Edit if self.edit_transition_cue_active() => "EDIT*",
             UiMode::Edit => "EDIT",
             UiMode::Prompt(Prompt {
                 kind: PromptFlow::Search,
@@ -2176,6 +2227,7 @@ impl App {
         // Throttle continuous background paints; one-shot UI transitions from
         // search/task still return true above without this gate.
         redraw |= self.take_background_redraw(lsp_redraw);
+        redraw |= self.observe_edit_transition_at(Instant::now());
         redraw
     }
 
@@ -2275,6 +2327,7 @@ impl App {
             Event::Mouse(mouse) if self.config.mouse => self.handle_mouse(mouse),
             _ => {}
         }
+        self.observe_edit_transition_at(Instant::now());
     }
 
     fn handle_paste(&mut self, text: &str) {
@@ -2338,7 +2391,11 @@ impl App {
 
     fn handle_key(&mut self, key: KeyEvent) {
         if is_control_char(key, 'g') {
+            let action_was_active = self.ui.keymap.is_active();
             self.cancel_transient();
+            if action_was_active {
+                self.arm_edit_transition();
+            }
             return;
         }
         if is_control_char(key, 'l') {
@@ -2387,6 +2444,7 @@ impl App {
                 return;
             }
         } else if self.ui.keymap.is_active() {
+            self.arm_edit_transition();
             self.ui.keymap.cancel();
             self.error("That key is not available in the Action layer");
             return;
@@ -2497,10 +2555,61 @@ impl App {
 
     fn apply_action_resolution(&mut self, resolution: Resolution) {
         match resolution {
-            Resolution::Pending(_) | Resolution::Cancel => self.ui.status = None,
-            Resolution::Command(action) => self.execute_action(action),
-            Resolution::Unknown(unknown) => self.error(unknown.message()),
+            Resolution::Pending(_) => self.ui.status = None,
+            Resolution::Cancel => {
+                self.arm_edit_transition();
+                self.ui.status = None;
+            }
+            Resolution::Command(action) => {
+                // Arm before execution so an Action command that edits (undo,
+                // duplicate, delete, paste…) is itself eligible for the cue.
+                self.arm_edit_transition();
+                self.execute_action(action);
+            }
+            Resolution::Unknown(unknown) => {
+                self.arm_edit_transition();
+                self.error(unknown.message());
+            }
         }
+    }
+
+    fn active_document_state_stamp(&self) -> DocumentStateStamp {
+        let editor = self.workspace.active();
+        DocumentStateStamp {
+            editor_id: editor.id(),
+            state_id: editor.document.state_id(),
+        }
+    }
+
+    fn arm_edit_transition(&mut self) {
+        self.ui.edit_transition.armed = Some(self.active_document_state_stamp());
+    }
+
+    /// Revision-driven rather than key-driven: paste, undo, LSP formatting and
+    /// every other real mutation share the same first-edit acknowledgement.
+    fn observe_edit_transition_at(&mut self, now: Instant) -> bool {
+        let Some(armed) = self.ui.edit_transition.armed else {
+            return false;
+        };
+        let current = self.active_document_state_stamp();
+        if current.editor_id != armed.editor_id {
+            // Action may open a picker and switch buffers before editing. A
+            // switch is not an edit; follow the new active document instead.
+            self.ui.edit_transition.armed = Some(current);
+            return false;
+        }
+        if self.workspace.active().document.is_read_only() {
+            // Live virtual views can replace their snapshot in the background;
+            // that is not an edit and must not consume the user's next cue.
+            self.ui.edit_transition.armed = Some(current);
+            return false;
+        }
+        if current.state_id == armed.state_id {
+            return false;
+        }
+        self.ui.edit_transition.armed = None;
+        self.ui.edit_transition.cue_until = Some(now + EDIT_TRANSITION_CUE_DURATION);
+        true
     }
 
     fn handle_prompt_key(&mut self, key: KeyEvent) {
@@ -10644,6 +10753,94 @@ mod tests {
 
     fn key(code: KeyCode) -> Event {
         Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
+    }
+
+    fn exit_action_layer(app: &mut App) {
+        app.handle_event(key(KeyCode::Esc));
+        assert!(app.ui.keymap.is_active());
+        app.handle_event(key(KeyCode::Esc));
+        assert!(!app.ui.keymap.is_active());
+        assert!(app.ui.edit_transition.armed.is_some());
+    }
+
+    #[test]
+    fn action_exit_cues_only_the_first_real_document_revision() {
+        let mut app = app_with_text("abc");
+        exit_action_layer(&mut app);
+
+        app.handle_event(key(KeyCode::Right));
+        assert!(app.ui.edit_transition.armed.is_some());
+        assert!(!app.edit_transition_cue_active());
+
+        app.handle_event(key(KeyCode::Char('x')));
+        let first_deadline = app
+            .ui
+            .edit_transition
+            .cue_until
+            .expect("the first document edit starts the cue");
+        assert!(app.edit_transition_cue_active_at(first_deadline - Duration::from_millis(1)));
+
+        app.handle_event(key(KeyCode::Char('y')));
+        assert_eq!(app.ui.edit_transition.cue_until, Some(first_deadline));
+        assert!(app.poll_ui_transients_at(first_deadline));
+        assert!(!app.poll_ui_transients_at(first_deadline));
+        assert!(!app.edit_transition_cue_active_at(first_deadline));
+    }
+
+    #[test]
+    fn action_edit_and_paste_share_the_revision_driven_cue() {
+        let mut action_app = app_with_text("alpha\n");
+        action_app.handle_event(key(KeyCode::Esc));
+        action_app.handle_event(key(KeyCode::Char('D')));
+        assert!(action_app.edit_transition_cue_active());
+        assert_eq!(
+            action_app.workspace.active().document.text(),
+            "alpha\nalpha\n"
+        );
+
+        let mut paste_app = app_with_text("");
+        exit_action_layer(&mut paste_app);
+        paste_app.handle_event(Event::Paste("pasted".to_owned()));
+        assert!(paste_app.edit_transition_cue_active());
+        assert_eq!(paste_app.workspace.active().document.text(), "pasted");
+    }
+
+    #[test]
+    fn rejected_read_only_edit_preserves_the_arm_and_error() {
+        let mut app = app_with_text("editable");
+        app.workspace.open_virtual("Read only", "snapshot");
+        exit_action_layer(&mut app);
+        let baseline = app.ui.edit_transition.armed;
+
+        app.handle_event(key(KeyCode::Char('x')));
+
+        assert_eq!(app.ui.edit_transition.armed, baseline);
+        assert!(app.ui.edit_transition.cue_until.is_none());
+        assert!(app.status_is_error());
+        assert!(
+            app.status_message()
+                .is_some_and(|message| message.contains("read-only"))
+        );
+    }
+
+    #[test]
+    fn control_g_and_unknown_action_exit_arm_without_replacing_errors() {
+        let mut control_g = app_with_text("");
+        control_g.handle_event(key(KeyCode::Esc));
+        control_g.handle_event(Event::Key(KeyEvent::new(
+            KeyCode::Char('g'),
+            KeyModifiers::CONTROL,
+        )));
+        assert!(control_g.ui.edit_transition.armed.is_some());
+
+        let mut unknown = app_with_text("");
+        unknown.handle_event(key(KeyCode::Esc));
+        unknown.handle_event(key(KeyCode::Char('!')));
+        assert!(unknown.ui.edit_transition.armed.is_some());
+        assert!(unknown.status_is_error());
+        unknown.handle_event(Event::Paste("x".to_owned()));
+        assert!(unknown.edit_transition_cue_active());
+        assert!(unknown.status_is_error());
     }
 
     fn test_git_available() -> bool {

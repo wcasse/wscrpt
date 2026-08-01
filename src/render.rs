@@ -330,7 +330,10 @@ impl Renderer {
         let rows_total = rows.len();
         self.previous = rows;
 
-        if let Some((x, y)) = cursor.filter(|_| !full_layout.too_small) {
+        if let Some((x, y)) = cursor
+            .filter(|_| !full_layout.too_small)
+            .filter(|_| !app.edit_transition_cue_active())
+        {
             queue!(output, MoveTo(x, y), Show)?;
         } else {
             queue!(output, Hide)?;
@@ -703,6 +706,7 @@ fn build_editor_rows(
                 search_match: search_match.as_ref(),
                 diagnostics: &diagnostics,
                 is_current: document_line == cursor_line,
+                edit_cue: app.edit_transition_cue_active(),
             },
         );
         row.pad_to(layout.width, Style::new(Color::Reset, Color::Reset));
@@ -778,6 +782,7 @@ fn build_wrapped_editor_rows(
                 search_match: search_match.as_ref(),
                 diagnostics: &diagnostics,
                 is_current: visual_row.logical_line == cursor_line,
+                edit_cue: app.edit_transition_cue_active(),
             },
         );
         rows[y] = row;
@@ -789,6 +794,7 @@ struct LineDecorations<'a> {
     search_match: Option<&'a std::ops::Range<usize>>,
     diagnostics: &'a [(std::ops::Range<usize>, DiagnosticSeverity)],
     is_current: bool,
+    edit_cue: bool,
 }
 
 /// Highlight every logical line in `lines` with a single sequential state walk.
@@ -858,7 +864,14 @@ fn append_document_range(
     // Default body text: near-white on Pro-like near-black (or transparent bg so
     // the host Terminal "Pro" background shows through).
     let base = if decorations.is_current {
-        Style::new(pro_fg_default(), pro_bg_current_line())
+        Style::new(
+            pro_fg_default(),
+            if decorations.edit_cue {
+                pro_bg_edit_transition()
+            } else {
+                pro_bg_current_line()
+            },
+        )
     } else {
         Style::new(pro_fg_default(), Color::Reset)
     };
@@ -898,7 +911,9 @@ fn append_document_range(
             .map(|span| syntax_style(span.kind, base.bg))
             .unwrap_or(base);
 
-        let style = if decorations
+        let style = if decorations.edit_cue && global == editor.cursor {
+            Style::new(Color::Black, pro_ansi_bright_yellow()).bold()
+        } else if decorations
             .selection
             .is_some_and(|range| ranges_overlap(range, &char_range))
         {
@@ -936,6 +951,27 @@ fn append_document_range(
             row.push_clean(&spaces, visible_end.saturating_sub(visible_start), style);
         }
         visual_column = visual_end;
+    }
+    if decorations.edit_cue
+        && decorations.is_current
+        && editor.cursor == line_end
+        && range_end == line_end
+    {
+        let cursor_visual = visual_width(
+            &editor.document.slice(line_start..editor.cursor),
+            app.config().tab_width,
+        );
+        if (left..right).contains(&cursor_visual) {
+            let cursor_cell = row_start_width + cursor_visual.saturating_sub(left);
+            row.pad_to(cursor_cell, base);
+            if row.width == cursor_cell && row.width < row_start_width + width {
+                row.push_clean(
+                    " ",
+                    1,
+                    Style::new(Color::Black, pro_ansi_bright_yellow()).bold(),
+                );
+            }
+        }
     }
     row.pad_to(row_start_width + width, base);
 }
@@ -982,6 +1018,11 @@ fn pro_bg_current_line() -> Color {
     Color::AnsiValue(234)
 }
 
+fn pro_bg_edit_transition() -> Color {
+    // A steady dark-amber lift for one row; readable without repainting the frame.
+    Color::AnsiValue(58)
+}
+
 fn pro_comment() -> Color {
     // Muted gray (bright black / Pro comment-like secondary)
     Color::AnsiValue(245)
@@ -1025,6 +1066,7 @@ fn build_status(app: &App, width: usize) -> Row {
     let base = Style::new(Color::AnsiValue(252), Color::AnsiValue(237));
     let mode_style = match app.mode_label() {
         "EDIT" => Style::new(Color::Black, Color::AnsiValue(114)).bold(),
+        "EDIT*" => Style::new(Color::Black, pro_ansi_bright_yellow()).bold(),
         "VIEW" => Style::new(Color::Black, Color::AnsiValue(153)).bold(),
         "ACTION" => Style::new(Color::Black, Color::AnsiValue(180)).bold(),
         "HELP" => Style::new(Color::White, Color::AnsiValue(61)).bold(),
@@ -1729,6 +1771,38 @@ mod tests {
         assert!(footer.starts_with(&format!("{}{}", expected.prefix, expected.input)));
         assert!(expected.hidden_left);
         assert_eq!(rows[layout.footer_y].width, layout.width);
+    }
+
+    #[test]
+    fn first_edit_cue_is_textual_and_renders_its_own_cursor_cell() {
+        let mut app = app_with_text("");
+        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+        app.handle_event(Event::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)));
+        app.handle_event(Event::Key(KeyEvent::new(
+            KeyCode::Char('x'),
+            KeyModifiers::NONE,
+        )));
+        assert!(app.edit_transition_cue_active());
+
+        let layout = Layout::calculate(80, 12, 1, true);
+        let (rows, cursor) = build_frame(&mut app, layout, layout, 0);
+        assert!(row_text(&rows[layout.status_y]).contains("EDIT*"));
+        assert!(
+            rows[layout.content_y].spans.iter().any(|span| {
+                span.text.contains(' ') && span.style.bg == pro_ansi_bright_yellow()
+            })
+        );
+        assert!(
+            cursor.is_some(),
+            "frame geometry still locates the editor cursor"
+        );
+
+        let mut renderer = Renderer::default();
+        let mut output = Vec::new();
+        renderer.draw(&mut output, &mut app, (80, 12)).unwrap();
+        let controls = String::from_utf8_lossy(&output);
+        assert!(controls.contains("\u{1b}[?25l"));
+        assert!(!controls.contains("\u{1b}[?25h"));
     }
 
     #[test]

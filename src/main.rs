@@ -268,6 +268,7 @@ fn main() -> Result<()> {
             redraw |= app.checkpoint_session();
             last_recovery = Instant::now();
         }
+        redraw |= app.poll_ui_transients();
         redraw |= app.poll_services();
 
         if app.take_terminal_request() {

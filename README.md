@@ -6,7 +6,7 @@
 
 **Remote-first terminal IDE for real development hosts** — especially iPad + Magic Keyboard sessions over Blink, SSH, or mosh.
 
-Ordinary typing stays ordinary. `Esc` (or `Ctrl-K`) opens a **no-timeout** action layer that does not depend on Command-key chords or permanent panel clutter. Mouse reporting is **off by default** so Blink can keep native touch selection.
+Ordinary typing stays ordinary. `Esc` (or `Ctrl-K`) opens a **no-timeout** action layer that does not depend on Command-key chords or permanent panel clutter. After Action closes, the first real document edit gets one short, steady `EDIT*`/cursor acknowledgement; navigation and failed edits do not trigger it. Mouse reporting is **off by default** so Blink can keep native touch selection.
 
 Version **0.2** is a deliberate core: editing, workspace navigation/search, trusted tasks, recovery, sessions, read-only Git, bounded LSP, and a safe full-screen workspace shell. It is not a VS Code clone. See [CHANGELOG.md](CHANGELOG.md).
 
