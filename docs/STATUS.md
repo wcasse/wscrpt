@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-01  
 **Goal:** open-source ready today  
-**Local tip:** `a625eb3` (13 commits ahead of `origin/main` @ `905d010`)  
+**Local tip:** `efc0931` (14 commits ahead of `origin/main` @ `905d010`)  
 **Do not push without Will.** Do not rewrite history without Will.
 
 This file is the coordination board for concurrent agent threads. Claim a
@@ -27,7 +27,7 @@ until your commit is in. If you touch release docs, do not refactor `src/`.
 | --- | --- | --- |
 | Integrate viewport / native terminal+player workspace | **Done (code)** | `4c8f3a9`; human device pass still open |
 | Pre-publish codebase audit | **Snapshot green** | `scripts/audit-public-source.sh` passed 2026-08-01; history intentionally red until owner decision |
-| `wscrpt` on PATH anywhere on Groudon | **Stale binary** → reinstalling | `~/.cargo/bin/wscrpt` was 01:30; tip is 14:52 |
+| `wscrpt` on PATH anywhere on Groudon | **Done** | `cargo install --path . --locked --force`; works from `/tmp` |
 | Host not Mac-only (Linux/WSL) | **Done (docs + CI contract)** | `docs/HOST_SUPPORT.md`; native Windows deferred |
 | Swap `Esc l` / `Esc L` | **Done** | `Esc l` = select lines; `Esc L` = line numbers (`src/keymap.rs`) |
 
@@ -56,10 +56,10 @@ until your commit is in. If you touch release docs, do not refactor `src/`.
 | Snapshot privacy audit | **Pass** | Re-run on exact publish commit |
 | History identity | **Owner decision** | Reachable history has `163216174+wcasse@users.noreply.github.com`; rewrite **not** authorized |
 | `gh` auth | **BROKEN** | `gh auth status` → invalid token; blocks Releases API, topics, private vuln UI via CLI |
-| Push 11 local commits | **Pending human** | Includes 0.2.1 prep + native client + Unreleased product |
+| Push 14 local commits | **Pending human** | Includes 0.2.1 prep + native client + Unreleased product + Stickies |
 | Tag `v0.2.1` | **Missing** | Only `v0.2.0` exists on origin; README already points at `v0.2.1` |
 | GitHub Release pages | **Missing** | Drafts in `docs/releases/` |
-| crates.io | **Not published** | Run `cargo publish --dry-run` first |
+| crates.io | **Dry-run pass; not published** | `cargo publish --dry-run` green on tip |
 | Topics | **Unknown / blocked** | Need working `gh` |
 | Private vulnerability reporting | **Unknown / blocked** | Need repo settings or working `gh` |
 | Demo GIF | P1 optional | `docs/demo.tape` present |
