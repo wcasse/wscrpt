@@ -11084,10 +11084,10 @@ impl App {
             } else if let Some(message) = finish_message {
                 self.status(message);
             }
-        } else if !urgent {
-            if let Some(message) = progress_status {
-                self.status(message);
-            }
+        } else if !urgent
+            && let Some(message) = progress_status
+        {
+            self.status(message);
         }
         if urgent {
             true
