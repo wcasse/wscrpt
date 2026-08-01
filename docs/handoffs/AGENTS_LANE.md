@@ -1,11 +1,17 @@
 # AGENTS lane — live handoff
 
 **Owner:** Agents-lane Grok thread  
-**Branch / worktree:** `agents/w2-lane` @ `/path/to/wscrpt-agents`  
-**Base tip when this note written:** `f7d76fd` on `main`  
-**Updated:** 2026-08-01
+**Branch / worktree:** `agents/w2-lane` @ sibling worktree `wscrpt-agents`  
+**Base tip when this note written:** `0f2999d` on `main`  
+**Updated:** 2026-08-01 (SHIP freeze notice)
 
-Sister lane: **STICKIES** owns the floating notepad. Contract: [../LANES.md](../LANES.md).
+Sister lane: **STICKIES** owns the floating notepad. **SHIP** owns release packaging only. Contract: [../LANES.md](../LANES.md).
+
+## SHIP freeze (v0.2.2 tonight)
+
+- Land or park feature work; after freeze, only SHIP docs/version commits land on `main`.
+- Rebase this branch on tagged `v0.2.2` / updated `main` before the next Agents commit.
+- SHIP will **not** edit `src/agent*.rs` or dashboard paint.
 
 ## Product truth (Agents)
 
@@ -61,7 +67,7 @@ When editing `app.rs` / `render.rs` / `keymap.rs` / `command.rs` / `session.rs`:
 ## Verify command (this lane)
 
 ```sh
-cd "/path/to/wscrpt-agents"
+cd /path/to/wscrpt-agents
 cargo fmt --all
 cargo clippy --all-targets --all-features --locked -- -D warnings
 cargo test --all-targets --all-features --locked
@@ -69,4 +75,5 @@ cargo test --all-targets --all-features --locked
 
 ## Log
 
-- **2026-08-01:** Lane ownership established; worktree `wscrpt-agents` on `agents/w2-lane`; dashboard consolidation leftovers on `main` (`f7d76fd`).
+- **2026-08-01 (SHIP):** Freeze window for **v0.2.2** — land ACP wire or park on this branch; no absolute home paths in tracked docs.
+- **2026-08-01:** Lane ownership established; worktree `wscrpt-agents` on `agents/w2-lane`; dashboard consolidation leftovers on `main`.

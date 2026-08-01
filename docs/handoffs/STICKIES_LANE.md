@@ -2,10 +2,16 @@
 
 **Owner:** Stickies-lane Grok thread  
 **Branch:** recommend `stickies/*` (not `agents/w2-lane`)  
-**Base tip when this note written:** `f7d76fd` on `main`  
-**Updated:** 2026-08-01 (scaffold for Stickies lane — please replace with your live status)
+**Base tip when this note written:** `0f2999d` on `main`  
+**Updated:** 2026-08-01 (SHIP freeze notice — Stickies lane: replace next-steps with live status)
 
-Sister lane: **AGENTS** owns the bottom Agents dashboard and run loop. Contract: [../LANES.md](../LANES.md).
+Sister lanes: **AGENTS** owns the bottom Agents dashboard and run loop. **SHIP** owns release packaging only. Contract: [../LANES.md](../LANES.md).
+
+## SHIP freeze (v0.2.2 tonight)
+
+- Land or park pad polish; after freeze, only SHIP docs/version commits land on `main`.
+- Rebase your branch on tagged `v0.2.2` / updated `main` before the next Stickies commit.
+- SHIP will **not** edit `src/stickies.rs` or pad paint/keys.
 
 ## Product truth (Stickies) — from last known ship
 
@@ -14,18 +20,19 @@ Sister lane: **AGENTS** owns the bottom Agents dashboard and run loop. Contract:
 - Storage: Markdown + TOML front matter; personal XDG + team `.wscrpt/stickies/`.
 - Geometry/visibility session-local (`sticky_pad_visible`); do not commit pad geometry into the repo.
 
-## AGENTS lane will not
+## AGENTS / SHIP will not
 
 - Edit `src/stickies.rs`
 - Change sticky pad paint or sticky key chords
 - Re-open stickies as the default buffer UX
 
-## Please do not (for Agents success)
+## Please do not (for Agents / SHIP success)
 
 - Edit `src/agent*.rs` or agent dashboard paint/height logic
 - Bind `Esc w A` without coordinating (Agents left it free)
 - Mix agent run/dashboard work into Stickies commits
 - Force-push `main`
+- Put absolute developer home paths in tracked docs (public-source audit fails)
 
 ## Shared files
 
@@ -33,4 +40,5 @@ See [../LANES.md](../LANES.md). Touch only sticky-named regions in `app.rs` / `r
 
 ## Log
 
+- **2026-08-01 (SHIP):** Freeze window for **v0.2.2**.
 - **2026-08-01:** Scaffold created by Agents lane so ownership is visible. Stickies lane: overwrite this file with your real next steps and branch name.

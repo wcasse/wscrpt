@@ -8,45 +8,46 @@ Not blocked on the iPad matrix. Use this while the hardware pass waits.
 - [x] MIT license
 - [x] Single product/binary name `wscrpt`
 - [x] CI: stable macOS + Linux + MSRV 1.88
-- [x] Tag `v0.2.0` — **pushed tags never move.** Fixes after a public tag ship as a new patch version (`v0.2.1`, …) so existing clones stay reproducible.
+- [x] Tag `v0.2.0` / `v0.2.1` — **pushed tags never move.** Fixes ship as new patch versions.
 - [x] CONTRIBUTING / SECURITY / issue templates
 - [x] Contributor map (`docs/CONTRIBUTOR_MAP.md`)
 - [x] Host verify gate (`scripts/verify.sh`)
-- [x] Current-snapshot privacy/secret/package audit (`scripts/audit-public-source.sh`)
 - [x] Dependency license inventory (`THIRD_PARTY_NOTICES.md`)
 - [x] Agent-friendly iPad prep (`scripts/ipad-matrix-prep.sh`)
-- [x] Release notes draft (`docs/releases/v0.2.0.md`)
+- [x] Release notes drafts (`docs/releases/v0.2.0.md`, `v0.2.1.md`, `v0.2.2.md`)
+- [x] Dual-lane ownership contract (`docs/LANES.md`)
 
 ## Guaranteed improvements (no iPad required)
 
-Live coordination: [`docs/STATUS.md`](STATUS.md). Snapshot audit re-run on 2026-08-01: **pass**.
+Live coordination: [`docs/STATUS.md`](STATUS.md).
 
-| Priority | Item | Why | Live status (2026-08-01) |
+| Priority | Item | Why | Live status (2026-08-01 evening) |
 | --- | --- | --- | --- |
-| P0 | GitHub **Release** notes pages for `v0.2.0` and `v0.2.1` (drafts in `docs/releases/`) | Discoverability; install snippet; checksums | Drafts ready (0.2.1 folded for Strategy A). **Pages not created.** Tag `v0.2.1` missing. See `docs/PUBLISH_RUNBOOK.md`. |
-| P0 | Enable **private vulnerability reporting** in repo settings | Matches SECURITY.md | Blocked on working GitHub auth / settings UI |
-| P0 | `cargo publish --dry-run` then publish when ready | One-line install for strangers | Dry-run pending this pass; crates.io not published |
-| P0 | Push local `main` (11 commits ahead of origin) | Public tip is still `905d010`; README already advertises `v0.2.1` | Human push after verify + `gh auth login` |
-| P0 | Decide whether existing commit identities/history are intentionally public; see `docs/PUBLIC_SOURCE_AUDIT.md` | A clean tip does not remove data from reachable history | **Recommend intentional public** (owner identity already on repo); no rewrite |
-| P1 | Demo GIF / short terminal recording | First-impression for README | `docs/demo.tape` present; GIF optional |
-| P1 | Delete or archive local `dist/checkpoints` binaries (210MB) after Release upload | Cleaner clones; already gitignored | Local-only; safe anytime |
-| P1 | Topics on GitHub: `terminal`, `editor`, `ide`, `ssh`, `mosh`, `ipad`, `rust` | Search | Blocked on `gh` token |
-| P2 | Publish a durable private maintainer/contact route without embedding a personal email in package metadata | Security and conduct routing | Package tip sanitized; SECURITY routing present |
-| P2 | First-hour help polish (`Esc ?` copy, README essentials) | Reduce “how do I…” issues | First-run help shipped in 0.2.1 body |
-| P2 | Optional: man page or extended `--help` examples | Power-user hygiene | Deferred |
+| P0 | Snapshot audit green on freeze tip | No home paths / secrets | SHIP scrubbing lane docs; re-run before tag |
+| P0 | History audit green **or** owner-accepted rewrite | Personal author email on 2 tip commits | Needs noreply rewrite + force-with-lease **or** explicit accept |
+| P0 | Package **v0.2.2** (Cargo.toml + CHANGELOG + README install) | Install honesty: main had pad/dashboard; tag lagged | Packaging in progress |
+| P0 | GitHub **Release** notes for `v0.2.0`–`v0.2.2` | Discoverability | Drafts ready; pages blocked on `gh` auth |
+| P0 | Enable **private vulnerability reporting** | Matches SECURITY.md | Blocked on settings / `gh` |
+| P0 | `cargo publish --dry-run` then publish | One-line install for strangers | Pending freeze tip |
+| P1 | Demo GIF | First impression | `docs/demo.tape` present; `vhs` not on PATH tonight |
+| P1 | Topics: `terminal`, `editor`, `ide`, `ssh`, `mosh`, `ipad`, `rust` | Search | Blocked on `gh` |
+| P1 | Local `dist/checkpoints` binaries (210MB) after Release upload | Cleaner disk; already gitignored | Safe anytime |
+| P2 | Durable private maintainer route without personal email in package metadata | Security routing | Package tip sanitized; SECURITY routing present |
 
 ## Explicitly defer (not launch blockers)
 
 - Full iPad matrix (human gate before *wide* confidence, not before “repo is public”)
-- VS Code–parity features (rename/refactor, multi-file replace, Git write UI)
+- Live ACP as default / Needs You / worktree isolation (Agents post-0.2.2)
+- Stickies multi-card native geometry (Stickies / native client)
+- VS Code–parity features (rename/refactor, multi-file replace, full Git client)
 - Native Windows host support beyond the documented WSL route
-- Large `app.rs` modularization (quality-of-life for contributors; do after launch noise)
+- Large `app.rs` modularization
 
 ## Wide-open definition
 
-**Minimum for “public and findable”:** public repo + green CI + tag + install-from-git docs (done).
+**Minimum for “public and findable”:** public repo + green CI + tag + install-from-git docs.
 
-**Minimum for “confidently recommend to strangers”:** above + GitHub Release + crates.io + short human Blink pass filed.
+**Minimum for “confidently recommend to strangers” (tonight’s bar):** above + **v0.2.2** tag matching product tip + GitHub Release + crates.io when credentials allow + short human Blink pass when hardware is free.
 
 Run `scripts/audit-public-source.sh` before each publication. Its default mode
 checks the current tracked snapshot. `scripts/audit-public-source.sh --history`

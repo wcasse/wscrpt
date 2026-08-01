@@ -68,11 +68,11 @@ These are **hot** and caused cross-lane damage before. Touch only your named reg
 ## Worktrees (recommended)
 
 ```text
-/path/to/wscrpt          → main or Stickies branch
-/path/to/wscrpt-agents   → agents/w2-lane   (AGENTS lane)
+/path/to/wscrpt          → main, Stickies branch, or SHIP packaging
+/path/to/wscrpt-agents   → agents/w2-lane   (AGENTS lane only)
 ```
 
-Agents lane should do feature work only in `wscrpt-agents`. Stickies lane stays out of that tree.
+Agents lane should do feature work only in the agents worktree. Stickies and SHIP stay out of that tree.
 
 ## Merge / PR order
 

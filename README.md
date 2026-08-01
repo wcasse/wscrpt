@@ -42,7 +42,7 @@ environment; native Windows remains unvalidated. See
 **From GitHub (recommended until crates.io):**
 
 ```sh
-cargo install --git https://github.com/wcasse/wscrpt --tag v0.2.1 --locked
+cargo install --git https://github.com/wcasse/wscrpt --tag v0.2.2 --locked
 wscrpt --health
 ```
 
@@ -75,7 +75,7 @@ cargo run --release -- .
 On the **host** (once):
 
 ```sh
-cargo install --git https://github.com/wcasse/wscrpt --tag v0.2.1 --locked
+cargo install --git https://github.com/wcasse/wscrpt --tag v0.2.2 --locked
 # optional: put a sample task file in each project
 mkdir -p .wscrpt && cp /path/to/wscrpt/examples/tasks.toml .wscrpt/tasks.toml
 ```

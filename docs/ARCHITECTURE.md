@@ -57,7 +57,7 @@ Unsaved text belongs only to bounded recovery journals. Saves remain atomic wher
 
 Filesystem traversal, searches, task output, Git subprocess output, LSP queues/documents/JSON, prompt input, terminal rendering, recent files, bookmarks, and recovery/session files all have explicit ceilings. Partial results remain labeled. Terminal modes are restored on normal exit, error, and panic paths.
 
-## Agent-native orchestration (W0 library)
+## Agent-native orchestration
 
 `src/agent_contract.rs` and `src/agent.rs` define the host-side orchestration
 contracts (work packet, bounded events, Stickies, review packets) and a single
@@ -66,18 +66,27 @@ generation, and a monotonic sequence. Path-touch events must fall under the
 packet's writable scopes and outside protected scopes. Cancelling or replacing
 a run advances generation so stale traffic cannot affect the current workspace.
 
-W0 does not launch agents, speak ACP, mutate files, or expose TUI controls.
-Those arrive in later roadmap phases behind the same contracts. See
-[AGENT_NATIVE_ROADMAP.md](AGENT_NATIVE_ROADMAP.md).
+W2 (partial) adds a plan-first run loop (`src/agent_runtime.rs`), host auth
+readiness probes (`src/agent_auth.rs`, no secrets stored), and a single bottom
+**Agents dashboard** in the TUI (`Esc w a` run, `Esc w x` cancel, `Esc w D`
+toggle). Default config uses a deterministic fake agent (`agent.use_fake =
+true`). Live ACP process launch is a follow-on; do not assume a provider is
+wired until release notes say so. See
+[AGENT_NATIVE_ROADMAP.md](AGENT_NATIVE_ROADMAP.md) and [AGENT_AUTH.md](AGENT_AUTH.md).
+
+Concurrent Stickies vs Agents edit ownership: [LANES.md](LANES.md).
 
 ## Stickies (W1)
 
 `src/stickies.rs` stores notes as Markdown with a TOML `+++` front matter
 block. Team notes are workspace files under `.wscrpt/stickies/`; personal notes
-and any layout file live only under `$XDG_STATE_HOME/wscrpt/`. The TUI reuses
-the candidate overlay (`Esc w k`) rather than a second notes editor: opening a
-sticky loads its path as a normal buffer. Archive is a front-matter flag, not
-a delete.
+and any layout file live only under `$XDG_STATE_HOME/wscrpt/`. The primary TUI
+surface is a floating **top-right notepad** (`StickyPad`): `Esc w k` toggles
+the pad, `Esc w K` creates a personal note, and jotting happens in-place
+(focus, cycle, save/archive/delete chords). Notes are not opened as ordinary
+editor buffers by default. Archive is a front-matter flag; delete is an
+explicit pad action. Session state stores visibility only — not viewport
+geometry into the workspace.
 
 ## Remote preview Phase 0 boundary
 

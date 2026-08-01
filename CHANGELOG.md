@@ -2,13 +2,16 @@
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-08-01
+
 ### Added
 
-- Agent run loop (W2 partial): plan-first fake agent with work-packet scope, cancel, and review handoff messaging. `Esc w a` / `:agent` starts a goal, `Esc w x` cancels. Default `agent.use_fake = true`; ACP argv is config-ready but not launched yet (Grok Build `grok agent stdio` is the intended follow-on).
+- Agent run loop (W2 partial): plan-first fake agent with work-packet scope, cancel, and review handoff messaging. `Esc w a` / `:agent` starts a goal, `Esc w x` cancels. Default `agent.use_fake = true`; ACP argv is config-ready for host CLIs (for example Grok Build `grok agent stdio`) but the safe default remains fake until you opt in.
 - Toggleable bottom **Agents dashboard** strip (Grok Build–inspired): state icons, live/idle roster, session/goal/authority, full receipt (kind + path), and key hints. `Esc w D` / `:agent-dashboard` (also `:agents`, `:agent-activity`, `:agent-receipt`, `:agent-status`) toggles; session-persisted; auto-opens and deepens when a run starts or a receipt exists.
 - Stickies are a **floating top-right notepad** (toggle `Esc w k`, new note `Esc w K`): jot in-place with focus, cycle notes with `[`/`]`, save with Ctrl-S, archive Ctrl-A, delete Ctrl-X. Markdown storage remains under the hood; notes are no longer opened as ordinary editor buffers by default.
 - **Sticky → agent brief:** if the sticky pad is open when you start `Esc w a`, the active note is attached to the work packet (`sticky_ids` + bounded `sticky_brief`) and the fake agent receipts a sticky-brief notice (workflow-style context without embedding a workflow runtime).
 - Agent host-auth readiness: config fields `profile`, `auth_check_argv`, `required_env` (names only); `wscrpt --health` reports agent mode/auth markers without storing secrets; docs in `docs/AGENT_AUTH.md`.
+- Dual-lane contributor contract for concurrent Stickies vs Agents work (`docs/LANES.md` and handoffs).
 
 ### Changed
 
