@@ -334,6 +334,7 @@ enum PromptFlow {
     WorkspaceSymbolPending,
     WorkspaceSymbols,
     WorkspaceOutline,
+    Stickies,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -408,6 +409,7 @@ impl PromptFlow {
             Self::WorkspaceSymbolPending => " workspace symbol (searching) › ",
             Self::WorkspaceSymbols => " workspace symbols › ",
             Self::WorkspaceOutline => " outline › ",
+            Self::Stickies => " stickies (Enter open · A archive) › ",
         }
     }
 
@@ -482,7 +484,8 @@ impl PromptFlow {
             | Self::LocalReferences
             | Self::SourceAnnotations
             | Self::WorkspaceSymbols
-            | Self::WorkspaceOutline => {
+            | Self::WorkspaceOutline
+            | Self::Stickies => {
                 PromptCompletion::Select(prompt.entries.get(prompt.selected).cloned())
             }
             Self::Command => PromptCompletion::ExecuteCommand(prompt.input.clone()),
@@ -530,6 +533,10 @@ enum PromptEntry {
     Jump(JumpLocation),
     Bookmark(JumpLocation),
     TaskProblem(TaskProblem),
+    Sticky {
+        id: String,
+        path: PathBuf,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -1886,6 +1893,7 @@ impl App {
             PromptFlow::SourceAnnotations => "SOURCE ANNOTATIONS",
             PromptFlow::WorkspaceSymbols => "WORKSPACE SYMBOLS",
             PromptFlow::WorkspaceOutline => "WORKSPACE OUTLINE",
+            PromptFlow::Stickies => "STICKIES",
             _ => return None,
         };
         Some(OverlayView {
@@ -2713,6 +2721,17 @@ impl App {
                 _ => {}
             }
         }
+        if matches!(
+            self.ui.mode,
+            UiMode::Prompt(Prompt {
+                kind: PromptFlow::Stickies,
+                ..
+            })
+        ) && matches!(key.code, KeyCode::Char('A'))
+        {
+            self.archive_selected_sticky();
+            return;
+        }
 
         let workspace_tree_was_empty = matches!(
             &self.ui.mode,
@@ -2980,6 +2999,8 @@ impl App {
                 self.status("Recovery journals are still being scanned")
             }
             Action::Recovery => self.begin_prompt(PromptFlow::Recovery),
+            Action::Stickies => self.open_stickies(),
+            Action::NewSticky => self.create_new_sticky(),
             Action::GlobalSearch if self.project.status.is_pending() => {
                 self.status("Workspace is still indexing; project search will be available shortly")
             }
@@ -3383,6 +3404,7 @@ impl App {
                 records.into_iter().unzip()
             }
             PromptFlow::GlobalSearch => (Vec::new(), Vec::new()),
+            PromptFlow::Stickies => self.sticky_candidates(&query),
             PromptFlow::Tasks => self
                 .tasks
                 .runner
@@ -3931,6 +3953,17 @@ impl App {
                         self.open_workspace_outline_location(target)
                     }
                     Some(PromptEntry::TaskProblem(problem)) => self.open_task_problem(problem),
+                    Some(PromptEntry::Sticky { path, .. }) => {
+                        let origin = self.current_jump_location();
+                        match self.workspace.open(path) {
+                            Ok(_) => {
+                                self.cache_active_workspace_tree_path();
+                                self.record_jump_origin(origin);
+                                self.status("Opened sticky");
+                            }
+                            Err(error) => self.error(error.to_string()),
+                        }
+                    }
                     Some(PromptEntry::WorkspaceTree(_)) => {
                         unreachable!("workspace-tree prompts commit in their dedicated branch")
                     }
@@ -4369,6 +4402,8 @@ impl App {
             ExCommand::LspRestart => self.restart_lsp(),
             ExCommand::KeymapReference => self.open_keymap_reference(),
             ExCommand::Help => self.ui.mode = UiMode::Help,
+            ExCommand::Stickies => self.open_stickies(),
+            ExCommand::NewSticky => self.create_new_sticky(),
         }
     }
 
@@ -10016,6 +10051,131 @@ impl App {
             prompt.notice = Some(
                 "Enter jumps to selected bookmark · filter by path/line · Esc cancels".to_owned(),
             );
+        }
+    }
+
+    fn sticky_library(&self) -> Result<crate::stickies::StickyLibrary, String> {
+        crate::stickies::StickyLibrary::for_workspace(self.workspace_root())
+            .map_err(|error| error.to_string())
+    }
+
+    fn open_stickies(&mut self) {
+        let library = match self.sticky_library() {
+            Ok(library) => library,
+            Err(error) => {
+                self.error(error);
+                return;
+            }
+        };
+        let listing = library.list();
+        if listing.notes.is_empty() && !listing.partial {
+            self.status("No stickies — Esc w K creates a personal note");
+            return;
+        }
+        self.begin_prompt(PromptFlow::Stickies);
+        if let UiMode::Prompt(prompt) = &mut self.ui.mode {
+            let mut notice = "Enter opens · A archives · filter by title · Esc cancels".to_owned();
+            if listing.partial {
+                notice.push_str(" · listing partial");
+            }
+            if let Some(warning) = listing.warnings.first() {
+                notice.push_str(&format!(" · {}", warning.message));
+            }
+            prompt.notice = Some(notice);
+        }
+        self.refresh_prompt_candidates();
+    }
+
+    fn sticky_candidates(&self, query: &str) -> (Vec<String>, Vec<PromptEntry>) {
+        let Ok(library) = self.sticky_library() else {
+            return (Vec::new(), Vec::new());
+        };
+        let listing = library.list();
+        listing
+            .notes
+            .into_iter()
+            .filter_map(|note| {
+                let label = crate::stickies::sticky_label(&note);
+                if !query.is_empty() && fuzzy_path_score(query, &label).is_none() {
+                    return None;
+                }
+                let path = library.path_for(note.store, &note.id).ok()?;
+                Some((label, PromptEntry::Sticky { id: note.id, path }))
+            })
+            .unzip()
+    }
+
+    fn create_new_sticky(&mut self) {
+        let library = match self.sticky_library() {
+            Ok(library) => library,
+            Err(error) => {
+                self.error(error);
+                return;
+            }
+        };
+        let active_path = self
+            .workspace
+            .active()
+            .document
+            .path()
+            .map(Path::to_path_buf);
+        let title = active_path
+            .as_deref()
+            .and_then(Path::file_name)
+            .map(|name| name.to_string_lossy().into_owned())
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| "Sticky".to_owned());
+        let anchor =
+            crate::stickies::anchor_for_open_file(self.workspace_root(), active_path.as_deref());
+        let body = format!("# {title}\n\n");
+        match library.create(
+            crate::agent_contract::StickyStore::Personal,
+            title,
+            body,
+            anchor,
+        ) {
+            Ok(note) => match library.path_for(note.store, &note.id) {
+                Ok(path) => {
+                    let origin = self.current_jump_location();
+                    match self.workspace.open(path) {
+                        Ok(_) => {
+                            self.cache_active_workspace_tree_path();
+                            self.record_jump_origin(origin);
+                            self.status(format!("Created sticky {}", note.id));
+                        }
+                        Err(error) => self.error(error.to_string()),
+                    }
+                }
+                Err(error) => self.error(error.to_string()),
+            },
+            Err(error) => self.error(error.to_string()),
+        }
+    }
+
+    fn archive_selected_sticky(&mut self) {
+        let selected = match &self.ui.mode {
+            UiMode::Prompt(prompt) if prompt.kind == PromptFlow::Stickies => {
+                prompt.entries.get(prompt.selected).cloned()
+            }
+            _ => None,
+        };
+        let Some(PromptEntry::Sticky { id, .. }) = selected else {
+            self.status("No sticky selected");
+            return;
+        };
+        let library = match self.sticky_library() {
+            Ok(library) => library,
+            Err(error) => {
+                self.error(error);
+                return;
+            }
+        };
+        match library.archive(&id) {
+            Ok(note) => {
+                self.status(format!("Archived sticky {}", note.id));
+                self.refresh_prompt_candidates();
+            }
+            Err(error) => self.error(error.to_string()),
         }
     }
 

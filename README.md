@@ -124,6 +124,7 @@ Press and release `Esc`, then type a sequence. Prefixes wait indefinitely. `Ctrl
 | `Esc /` / `Esc R` | Find / replace all in buffer |
 | `Esc w t` / `Esc w S` | Workspace tree / sidebar |
 | `Esc w s` / `Esc w R` | Project search / refresh snapshots |
+| `Esc w k` / `Esc w K` | Stickies list / new personal sticky |
 | `Esc c c` | LSP completion |
 | `Esc c p` | Unified LSP/task Problems |
 | `Esc t d` / `Esc t r` | Default task / task picker (trust-gated) |

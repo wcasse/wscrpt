@@ -70,6 +70,15 @@ W0 does not launch agents, speak ACP, mutate files, or expose TUI controls.
 Those arrive in later roadmap phases behind the same contracts. See
 [AGENT_NATIVE_ROADMAP.md](AGENT_NATIVE_ROADMAP.md).
 
+## Stickies (W1)
+
+`src/stickies.rs` stores notes as Markdown with a TOML `+++` front matter
+block. Team notes are workspace files under `.wscrpt/stickies/`; personal notes
+and any layout file live only under `$XDG_STATE_HOME/wscrpt/`. The TUI reuses
+the candidate overlay (`Esc w k`) rather than a second notes editor: opening a
+sticky loads its path as a normal buffer. Archive is a front-matter flag, not
+a delete.
+
 ## Remote preview Phase 0 boundary
 
 The remote agent-preview spike is deliberately outside the Rust terminal

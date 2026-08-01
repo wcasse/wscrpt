@@ -5,6 +5,7 @@
 ### Added
 
 - Agent-native contracts (W0): work packets with explicit path scope and authority, bounded agent events, Sticky and review-packet types, a host-local `AgentCoordinator` admission point (workspace id + generation + monotonic sequence), and a deterministic fake agent. Stale, oversized, out-of-scope, replayed, and cancelled events are rejected before they can affect the current workspace. No ACP process, TUI drawer, or filesystem mutation yet — orchestration surface only.
+- Stickies v1 (W1): Markdown notes with TOML front matter. Personal notes live under `$XDG_STATE_HOME/wscrpt/stickies/<workspace-key>/`; team notes under `.wscrpt/stickies/`. Layout stays out of the workspace. `Esc w k` / `:stickies` lists notes; Enter opens; `A` archives; `Esc w K` / `:new-sticky` creates a personal sticky anchored to the current file (or workspace). Bodies sanitize terminal escapes; invalid files are skipped with partial-list warnings.
 - Trusted local Git mutations return as a deliberately smaller surface: `Esc v S` / `:stage-current`, `Esc v U` / `:unstage-current`, and `Esc v c` / `:commit-staged`. They operate only on the current saved file or already staged index, run one at a time on bounded non-interactive workers, require trust every run because filters/hooks may execute, and refresh Git status after every outcome. Branch, network, discard/reset/clean, arbitrary-path, and signed-commit workflows remain in the workspace shell.
 
 ### Changed

@@ -21,6 +21,7 @@ pub mod render;
 pub mod search;
 mod services;
 pub mod session;
+pub mod stickies;
 pub mod syntax;
 pub mod task_output;
 pub mod task_problem;

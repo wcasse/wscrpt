@@ -54,6 +54,8 @@ pub enum ExCommand {
     LspRestart,
     KeymapReference,
     Help,
+    Stickies,
+    NewSticky,
 }
 
 pub fn parse(input: &str) -> Result<ExCommand, String> {
@@ -192,6 +194,12 @@ pub fn parse(input: &str) -> Result<ExCommand, String> {
             no_argument(argument, ExCommand::KeymapReference)
         }
         "help" | "h" | "?" => no_argument(argument, ExCommand::Help),
+        "stickies" | "sticky" | "notes" | "sticky-list" => {
+            no_argument(argument, ExCommand::Stickies)
+        }
+        "new-sticky" | "sticky-new" | "note-new" | "new-note" => {
+            no_argument(argument, ExCommand::NewSticky)
+        }
         _ => Err(format!("unknown command: {name}")),
     }
 }

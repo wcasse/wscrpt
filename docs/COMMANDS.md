@@ -80,6 +80,8 @@ Enter the no-timeout action layer with `Esc` or `Ctrl-K`, then type the listed s
 | `Esc w m` | `workspace.rename-file` | Rename File |
 | `Esc w c` | `workspace.save-copy-as` | Save Copy As |
 | `Esc w r` | `workspace.recovery` | Recovery Journals |
+| `Esc w k` | `workspace.stickies` | Stickies |
+| `Esc w K` | `workspace.new-sticky` | New Sticky |
 
 ## Code
 

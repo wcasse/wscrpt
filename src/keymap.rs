@@ -237,6 +237,8 @@ pub enum Action {
     RenameFile,
     SaveCopyAs,
     Recovery,
+    Stickies,
+    NewSticky,
     Completion,
     Definition,
     References,
@@ -347,6 +349,8 @@ impl Action {
         Self::RenameFile,
         Self::SaveCopyAs,
         Self::Recovery,
+        Self::Stickies,
+        Self::NewSticky,
         Self::Completion,
         Self::Definition,
         Self::References,
@@ -987,6 +991,22 @@ pub static COMMANDS: &[Command] = &[
         ["crash", "restore", "unsaved"]
     ),
     command!(
+        Stickies,
+        "workspace.stickies",
+        "Stickies",
+        Workspace,
+        prefixed('w', 'k'),
+        ["notes", "sticky", "memo", "markdown"]
+    ),
+    command!(
+        NewSticky,
+        "workspace.new-sticky",
+        "New Sticky",
+        Workspace,
+        prefixed('w', 'K'),
+        ["notes", "sticky", "memo", "create"]
+    ),
+    command!(
         Completion,
         "code.completion",
         "Completion",
@@ -1376,6 +1396,8 @@ fn hint_actions(prefix: PrefixState) -> &'static [Action] {
             Action::NewFile,
             Action::RenameFile,
             Action::Recovery,
+            Action::Stickies,
+            Action::NewSticky,
         ],
         PrefixState::Code => &[
             Action::Completion,
@@ -1732,6 +1754,8 @@ mod tests {
             (prefixed('w', 'm'), Action::RenameFile),
             (prefixed('w', 'c'), Action::SaveCopyAs),
             (prefixed('w', 'r'), Action::Recovery),
+            (prefixed('w', 'k'), Action::Stickies),
+            (prefixed('w', 'K'), Action::NewSticky),
             (prefixed('c', 'c'), Action::Completion),
             (prefixed('c', 'd'), Action::Definition),
             (prefixed('c', 'r'), Action::References),

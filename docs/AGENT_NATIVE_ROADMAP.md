@@ -224,8 +224,9 @@ affect the current workspace.
 
 ### W1 — Stickies v1
 
-Implement Markdown storage, atomic saves, personal/team separation,
-search/archive, and the TUI overlay.
+**Done (host TUI):** Markdown storage, atomic saves, personal/team separation,
+list/filter/archive, and the stickies picker overlay (`Esc w k` / `Esc w K`).
+Native iPad floating cards remain W4.
 
 Gate: formatting round-trips, no committed layout churn, sanitization, and
 recovery from truncated/invalid metadata.
