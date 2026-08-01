@@ -23,7 +23,7 @@ Live coordination: [`docs/STATUS.md`](STATUS.md). Snapshot audit re-run on 2026-
 
 | Priority | Item | Why | Live status (2026-08-01) |
 | --- | --- | --- | --- |
-| P0 | GitHub **Release** notes pages for `v0.2.0` and `v0.2.1` (drafts in `docs/releases/`) | Discoverability; install snippet; checksums | Drafts exist; **pages not created**. Tag `v0.2.1` missing; only `v0.2.0` on origin. |
+| P0 | GitHub **Release** notes pages for `v0.2.0` and `v0.2.1` (drafts in `docs/releases/`) | Discoverability; install snippet; checksums | Drafts ready (0.2.1 folded for Strategy A). **Pages not created.** Tag `v0.2.1` missing. See `docs/PUBLISH_RUNBOOK.md`. |
 | P0 | Enable **private vulnerability reporting** in repo settings | Matches SECURITY.md | Blocked on working GitHub auth / settings UI |
 | P0 | `cargo publish --dry-run` then publish when ready | One-line install for strangers | Dry-run pending this pass; crates.io not published |
 | P0 | Push local `main` (11 commits ahead of origin) | Public tip is still `905d010`; README already advertises `v0.2.1` | Human push after verify + `gh auth login` |

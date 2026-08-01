@@ -2,19 +2,7 @@
 
 ## [Unreleased]
 
-### Added
-
-- Agent-native contracts (W0): work packets with explicit path scope and authority, bounded agent events, Sticky and review-packet types, a host-local `AgentCoordinator` admission point (workspace id + generation + monotonic sequence), and a deterministic fake agent. Stale, oversized, out-of-scope, replayed, and cancelled events are rejected before they can affect the current workspace. No ACP process, TUI drawer, or filesystem mutation yet — orchestration surface only.
-- Stickies v1 (W1): Markdown notes with TOML front matter. Personal notes live under `$XDG_STATE_HOME/wscrpt/stickies/<workspace-key>/`; team notes under `.wscrpt/stickies/`. Layout stays out of the workspace. `Esc w k` / `:stickies` lists notes; Enter opens; `A` archives; `Esc w K` / `:new-sticky` creates a personal sticky anchored to the current file (or workspace). Bodies sanitize terminal escapes; invalid files are skipped with partial-list warnings.
-- Trusted local Git mutations return as a deliberately smaller surface: `Esc v S` / `:stage-current`, `Esc v U` / `:unstage-current`, and `Esc v c` / `:commit-staged`. They operate only on the current saved file or already staged index, run one at a time on bounded non-interactive workers, require trust every run because filters/hooks may execute, and refresh Git status after every outcome. Branch, network, discard/reset/clean, arbitrary-path, and signed-commit workflows remain in the workspace shell.
-
-### Changed
-
-- The line-oriented action-layer shortcuts now use `Esc l` to select the current line or expand an existing selection to whole lines, and `Esc L` to toggle line numbers.
-- Host support is explicit: macOS and Linux remain the tested remote-host contract, WSL 2 is the practical Windows route, and native Windows is not claimed without terminal/process-tree CI.
-- Leaving the Action layer now arms one revision-driven acknowledgement: only the first successful document edit shows a steady 360 ms `EDIT*`/cursor cue; navigation, buffer changes, and rejected/read-only edits do not consume it.
-
-## [0.2.1] - 2026-07-29
+## [0.2.1] - 2026-08-01
 
 ### Added
 
@@ -22,12 +10,19 @@
 - Daily LSP visibility: the footer shows the attached server and its state, errors name the discovered binary and the exact config step to authorize it, and `--print-default-config` emits ready-to-uncomment `[[language_servers]]` blocks for servers found on PATH.
 - Optional `format_on_save` (default off; explicit `Esc c f` formatting is unchanged).
 - The Workspace Info route snapshot reports the selected OSC 52 clipboard transport.
+- Stickies v1: Markdown notes with TOML front matter. Personal notes live under `$XDG_STATE_HOME/wscrpt/stickies/<workspace-key>/`; team notes under `.wscrpt/stickies/`. Layout stays out of the workspace. `Esc w k` / `:stickies` lists notes; Enter opens; `A` archives; `Esc w K` / `:new-sticky` creates a personal sticky anchored to the current file (or workspace). Bodies sanitize terminal escapes; invalid files are skipped with partial-list warnings.
+- Trusted local Git mutations return as a deliberately smaller surface: `Esc v S` / `:stage-current`, `Esc v U` / `:unstage-current`, and `Esc v c` / `:commit-staged`. They operate only on the current saved file or already staged index, run one at a time on bounded non-interactive workers, require trust every run because filters/hooks may execute, and refresh Git status after every outcome. Branch, network, discard/reset/clean, arbitrary-path, and signed-commit workflows remain in the workspace shell.
+- Agent-native contracts (W0): work packets with explicit path scope and authority, bounded agent events, Sticky and review-packet types, a host-local `AgentCoordinator` admission point (workspace id + generation + monotonic sequence), and a deterministic fake agent. Stale, oversized, out-of-scope, replayed, and cancelled events are rejected before they can affect the current workspace. No ACP process, TUI drawer, or filesystem mutation yet — orchestration surface only.
+- Optional native iPad terminal + player preview harness and host preview sidecar live in-tree under `clients/` and `previewd/` for contributors; they are excluded from the Rust crate package and are not required to install or run `wscrpt`.
 
 ### Changed
 
 - Clipboard copies inside tmux now wrap OSC 52 in tmux's DCS passthrough envelope, reaching the outer terminal (Blink) directly instead of depending on tmux's `set-clipboard` forwarding. On tmux 3.3+ this requires `allow-passthrough on`; `wscrpt --health` says so inside tmux.
 - Renderer paint reductions for remote links: differential style emission per span and allocation-free grapheme display cut per-frame output bytes measurably over SSH/mosh.
 - Buffer tabs use a fixed position-indexed color scale, so switching buffers never recolors the header.
+- The line-oriented action-layer shortcuts now use `Esc l` to select the current line or expand an existing selection to whole lines, and `Esc L` to toggle line numbers.
+- Host support is explicit: macOS and Linux remain the tested remote-host contract, WSL 2 is the practical Windows route, and native Windows is not claimed without terminal/process-tree CI.
+- Leaving the Action layer now arms one revision-driven acknowledgement: only the first successful document edit shows a steady 360 ms `EDIT*`/cursor cue; navigation, buffer changes, and rejected/read-only edits do not consume it.
 
 ### Fixed
 
