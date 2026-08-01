@@ -40,9 +40,8 @@ No separate Agent Activity popup. Receipt/detail lives in the dashboard via `for
 
 ## Next work (priority order)
 
-1. **Richer update mapping** — path-touched from tool payloads when in scope; optional message-chunk coalesce.
-2. **Review handoff** — strengthen “open Git status / diffs” from Review state without inventing a new VCS UI.
-3. Keep dashboard the single surface; expand depth/content only.
+1. **Review handoff** — strengthen “open Git status / diffs” from Review state without inventing a new VCS UI.
+2. Keep dashboard the single surface; expand depth/content only.
 
 ## Do not
 
@@ -70,6 +69,7 @@ cargo test --all-targets --all-features --locked
 
 ## Log
 
+- **2026-08-01:** Richer ACP map: path_touched from tool locations; coalesced message chunks.
 - **2026-08-01:** Dirty-tree gate: refuse unsaved buffers; confirm on Git dirt.
 - **2026-08-01:** Needs You: ACP permission prompts on dashboard; Y/N + `Esc w A` allow.
 - **2026-08-01:** ACP process wire: `src/agent_acp.rs` + `spawn_process_agent`; fake path remains default; dep `serde_json`.

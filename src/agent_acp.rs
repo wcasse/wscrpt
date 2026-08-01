@@ -31,6 +31,20 @@ use crate::lsp_discover::resolve_executable;
 const READ_IDLE: Duration = Duration::from_millis(40);
 const MAX_STDOUT_LINE_BYTES: usize = 256 * 1024;
 const MAX_EMITTED_EVENTS: u64 = 200;
+/// Flush coalesced agent text after this many UTF-8 bytes.
+const CHUNK_FLUSH_BYTES: usize = 120;
+/// Flush coalesced agent text after this idle gap.
+const CHUNK_FLUSH_IDLE: Duration = Duration::from_millis(400);
+/// Max locations to map into path_touched events per tool update.
+const MAX_PATHS_PER_TOOL: usize = 8;
+
+/// Coalesces streaming message/thought chunks into sparse receipt lines.
+#[derive(Debug, Default)]
+struct ChunkCoalesce {
+    buffer: String,
+    label: &'static str,
+    last_push: Option<std::time::Instant>,
+}
 
 /// Spawn a real ACP agent process and drive one goal turn over stdio.
 pub fn spawn_acp_agent(
@@ -101,11 +115,13 @@ fn run_acp_session(
     permission_rx: Receiver<PermissionDecision>,
 ) {
     let mut sequence = 0u64;
+    let mut coalesce = ChunkCoalesce::default();
     let emit = |sequence: &mut u64,
                 sender: &SyncSender<AgentJobEvent>,
                 kind: AgentEventKind,
                 summary: String,
-                run_state: Option<AgentRunState>| {
+                run_state: Option<AgentRunState>,
+                path: Option<PathBuf>| {
         if *sequence >= MAX_EMITTED_EVENTS {
             return false;
         }
@@ -118,7 +134,7 @@ fn run_acp_session(
             timestamp_unix_ms: unix_now_ms(),
             kind,
             summary: truncate_summary(summary),
-            path: None,
+            path,
             git_object: None,
             artifact_ref: None,
             check_ok: None,
@@ -134,6 +150,7 @@ fn run_acp_session(
         AgentEventKind::State,
         format!("ACP starting · {}", display_argv(&program, &args)),
         Some(AgentRunState::Brief),
+        None,
     ) {
         return;
     }
@@ -251,6 +268,7 @@ fn run_acp_session(
         AgentEventKind::State,
         format!("ACP initialize ok · protocol {protocol_version}"),
         Some(AgentRunState::Working),
+        None,
     ) {
         terminate_child(&mut child);
         child_pid.store(0, Ordering::Release);
@@ -327,6 +345,7 @@ fn run_acp_session(
         AgentEventKind::State,
         format!("ACP session {acp_session_id}"),
         Some(AgentRunState::Working),
+        None,
     ) {
         terminate_child(&mut child);
         child_pid.store(0, Ordering::Release);
@@ -406,7 +425,9 @@ fn run_acp_session(
                             handle_notification(
                                 method,
                                 value.get("params"),
+                                &cwd,
                                 &mut sequence,
+                                &mut coalesce,
                                 &sender,
                                 workspace_id,
                                 &host_session_id,
@@ -430,6 +451,15 @@ fn run_acp_session(
                             );
                             return;
                         }
+                        flush_coalesce(
+                            &mut coalesce,
+                            &mut sequence,
+                            &sender,
+                            workspace_id,
+                            &host_session_id,
+                            generation,
+                            true,
+                        );
                         let stop = value
                             .pointer("/result/stopReason")
                             .and_then(Value::as_str)
@@ -440,6 +470,7 @@ fn run_acp_session(
                             AgentEventKind::ReviewReady,
                             format!("ACP turn complete · {stop}"),
                             Some(AgentRunState::Review),
+                            None,
                         );
                         drop(stdin);
                         let _ = child.wait();
@@ -457,6 +488,15 @@ fn run_acp_session(
                 }
             },
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                flush_coalesce(
+                    &mut coalesce,
+                    &mut sequence,
+                    &sender,
+                    workspace_id,
+                    &host_session_id,
+                    generation,
+                    false,
+                );
                 if let Ok(Some(status)) = child.try_wait() {
                     child_pid.store(0, Ordering::Release);
                     let _ = sender.send(AgentJobEvent::Finished {
@@ -674,10 +714,13 @@ fn write_response(stdin: &mut impl Write, id: u64, result: Value) -> Result<(), 
         .map_err(|error| format!("ACP flush response: {error}"))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_notification(
     method: &str,
     params: Option<&Value>,
+    cwd: &Path,
     sequence: &mut u64,
+    coalesce: &mut ChunkCoalesce,
     sender: &SyncSender<AgentJobEvent>,
     workspace_id: u64,
     host_session_id: &str,
@@ -699,54 +742,311 @@ fn handle_notification(
         .and_then(Value::as_str)
         .unwrap_or("update");
 
-    let (event_kind, run_state, summary) = match kind {
+    match kind {
+        "agent_message_chunk" => {
+            push_chunk(
+                coalesce,
+                "agent",
+                extract_text(&update).unwrap_or_default(),
+                sequence,
+                sender,
+                workspace_id,
+                host_session_id,
+                generation,
+            );
+            return;
+        }
+        "agent_thought_chunk" => {
+            push_chunk(
+                coalesce,
+                "thought",
+                extract_text(&update).unwrap_or_default(),
+                sequence,
+                sender,
+                workspace_id,
+                host_session_id,
+                generation,
+            );
+            return;
+        }
+        _ => {
+            // Discrete events flush any streaming text first.
+            flush_coalesce(
+                coalesce,
+                sequence,
+                sender,
+                workspace_id,
+                host_session_id,
+                generation,
+                true,
+            );
+        }
+    }
+
+    match kind {
         "plan" => {
             let text = extract_text(&update).unwrap_or_else(|| "plan update".to_owned());
-            (
+            emit_event(
+                sequence,
+                sender,
+                workspace_id,
+                host_session_id,
+                generation,
                 AgentEventKind::Plan,
-                Some(AgentRunState::Working),
                 format!("plan: {text}"),
-            )
-        }
-        "tool_call" => {
-            let title = update
-                .get("title")
-                .and_then(Value::as_str)
-                .or_else(|| update.get("kind").and_then(Value::as_str))
-                .unwrap_or("tool");
-            (
-                AgentEventKind::Notice,
                 Some(AgentRunState::Working),
-                format!("tool: {title}"),
-            )
+                None,
+            );
         }
-        "tool_call_update" => {
-            let status = update
-                .get("status")
-                .and_then(Value::as_str)
-                .unwrap_or("update");
-            (
-                AgentEventKind::Notice,
-                Some(AgentRunState::Working),
-                format!("tool {status}"),
-            )
-        }
-        "agent_message_chunk" | "agent_thought_chunk" => {
-            // Coalesce-only: emit occasional progress, not every token.
-            // Skip pure chunks to keep receipt bounded; status line gets notices
-            // from higher-level tools. Emit a lightweight working heartbeat rarely.
-            return;
+        "tool_call" | "tool_call_update" => {
+            emit_tool_update(
+                &update,
+                kind,
+                cwd,
+                sequence,
+                sender,
+                workspace_id,
+                host_session_id,
+                generation,
+            );
         }
         other => {
             let text = extract_text(&update).unwrap_or_else(|| other.to_owned());
-            (
+            emit_event(
+                sequence,
+                sender,
+                workspace_id,
+                host_session_id,
+                generation,
                 AgentEventKind::Notice,
-                Some(AgentRunState::Working),
                 format!("acp: {text}"),
-            )
+                Some(AgentRunState::Working),
+                None,
+            );
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_tool_update(
+    update: &Value,
+    kind: &str,
+    cwd: &Path,
+    sequence: &mut u64,
+    sender: &SyncSender<AgentJobEvent>,
+    workspace_id: u64,
+    host_session_id: &str,
+    generation: u64,
+) {
+    let title = update
+        .get("title")
+        .and_then(Value::as_str)
+        .or_else(|| update.pointer("/fields/title").and_then(Value::as_str))
+        .or_else(|| update.get("kind").and_then(Value::as_str))
+        .unwrap_or(if kind == "tool_call_update" {
+            "tool update"
+        } else {
+            "tool"
+        });
+    let status = update.get("status").and_then(Value::as_str).unwrap_or("");
+    let summary = if status.is_empty() {
+        format!("tool: {title}")
+    } else {
+        format!("tool {status}: {title}")
+    };
+    emit_event(
+        sequence,
+        sender,
+        workspace_id,
+        host_session_id,
+        generation,
+        AgentEventKind::Notice,
+        summary,
+        Some(AgentRunState::Working),
+        None,
+    );
+
+    let paths = extract_tool_paths(update, cwd);
+    for path in paths.into_iter().take(MAX_PATHS_PER_TOOL) {
+        let path_display = path.display().to_string();
+        emit_event(
+            sequence,
+            sender,
+            workspace_id,
+            host_session_id,
+            generation,
+            AgentEventKind::PathTouched,
+            format!("path: {path_display}"),
+            Some(AgentRunState::Working),
+            Some(path),
+        );
+    }
+}
+
+/// Collect workspace-relative paths from tool_call locations / raw_input.
+fn extract_tool_paths(update: &Value, cwd: &Path) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    let mut push = |raw: &str| {
+        if let Some(relative) = relativize_workspace_path(raw, cwd) {
+            if !paths.iter().any(|existing| existing == &relative) {
+                paths.push(relative);
+            }
         }
     };
 
+    if let Some(locations) = update
+        .get("locations")
+        .or_else(|| update.pointer("/fields/locations"))
+        .and_then(Value::as_array)
+    {
+        for location in locations {
+            if let Some(path) = location.get("path").and_then(Value::as_str) {
+                push(path);
+            }
+        }
+    }
+
+    // Common raw_input shapes: { "path": "..." } or { "file": "..." } or { "file_path": "..." }.
+    for key in ["path", "file", "file_path", "filename", "target"] {
+        if let Some(path) = update
+            .pointer(&format!("/rawInput/{key}"))
+            .or_else(|| update.pointer(&format!("/raw_input/{key}")))
+            .or_else(|| update.pointer(&format!("/fields/rawInput/{key}")))
+            .and_then(Value::as_str)
+        {
+            push(path);
+        }
+    }
+
+    paths
+}
+
+/// Map an absolute or relative path into a workspace-relative path when possible.
+fn relativize_workspace_path(raw: &str, cwd: &Path) -> Option<PathBuf> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let without_uri = trimmed
+        .strip_prefix("file://")
+        .unwrap_or(trimmed)
+        .to_owned();
+    let path = PathBuf::from(&without_uri);
+    let relative = if path.is_absolute() {
+        path.strip_prefix(cwd).ok()?.to_path_buf()
+    } else {
+        path
+    };
+    if relative.as_os_str().is_empty() {
+        return None;
+    }
+    // Coordinator rejects `..` escapes; drop those early.
+    if relative
+        .components()
+        .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return None;
+    }
+    Some(relative)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn push_chunk(
+    coalesce: &mut ChunkCoalesce,
+    label: &'static str,
+    text: String,
+    sequence: &mut u64,
+    sender: &SyncSender<AgentJobEvent>,
+    workspace_id: u64,
+    host_session_id: &str,
+    generation: u64,
+) {
+    if text.is_empty() {
+        return;
+    }
+    if coalesce.label != label && !coalesce.buffer.is_empty() {
+        flush_coalesce(
+            coalesce,
+            sequence,
+            sender,
+            workspace_id,
+            host_session_id,
+            generation,
+            true,
+        );
+    }
+    coalesce.label = label;
+    coalesce.buffer.push_str(&text);
+    coalesce.last_push = Some(std::time::Instant::now());
+    if coalesce.buffer.len() >= CHUNK_FLUSH_BYTES {
+        flush_coalesce(
+            coalesce,
+            sequence,
+            sender,
+            workspace_id,
+            host_session_id,
+            generation,
+            true,
+        );
+    }
+}
+
+fn flush_coalesce(
+    coalesce: &mut ChunkCoalesce,
+    sequence: &mut u64,
+    sender: &SyncSender<AgentJobEvent>,
+    workspace_id: u64,
+    host_session_id: &str,
+    generation: u64,
+    force: bool,
+) {
+    if coalesce.buffer.is_empty() {
+        return;
+    }
+    if !force {
+        let Some(last) = coalesce.last_push else {
+            return;
+        };
+        if last.elapsed() < CHUNK_FLUSH_IDLE {
+            return;
+        }
+    }
+    let text = std::mem::take(&mut coalesce.buffer);
+    let label = coalesce.label;
+    coalesce.last_push = None;
+    let collapsed = collapse_whitespace(&text);
+    if collapsed.is_empty() {
+        return;
+    }
+    emit_event(
+        sequence,
+        sender,
+        workspace_id,
+        host_session_id,
+        generation,
+        AgentEventKind::Notice,
+        format!("{label}: {collapsed}"),
+        Some(AgentRunState::Working),
+        None,
+    );
+}
+
+fn collapse_whitespace(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_event(
+    sequence: &mut u64,
+    sender: &SyncSender<AgentJobEvent>,
+    workspace_id: u64,
+    host_session_id: &str,
+    generation: u64,
+    kind: AgentEventKind,
+    summary: String,
+    run_state: Option<AgentRunState>,
+    path: Option<PathBuf>,
+) {
     if *sequence >= MAX_EMITTED_EVENTS {
         return;
     }
@@ -757,9 +1057,9 @@ fn handle_notification(
         generation,
         sequence: *sequence,
         timestamp_unix_ms: unix_now_ms(),
-        kind: event_kind,
+        kind,
         summary: truncate_summary(summary),
-        path: None,
+        path,
         git_object: None,
         artifact_ref: None,
         check_ok: None,
@@ -872,6 +1172,9 @@ fn wait_for_response(
     host_session_id: &str,
     generation: u64,
 ) -> Result<Value, WaitError> {
+    // Handshake phase: ignore streaming coalesce (no cwd-bound tool paths yet).
+    let mut coalesce = ChunkCoalesce::default();
+    let cwd = PathBuf::from(".");
     let deadline = std::time::Instant::now() + timeout;
     loop {
         if cancel.load(Ordering::Acquire) {
@@ -889,7 +1192,9 @@ fn wait_for_response(
                     handle_notification(
                         method,
                         value.get("params"),
+                        &cwd,
                         sequence,
+                        &mut coalesce,
                         sender,
                         workspace_id,
                         host_session_id,
@@ -991,6 +1296,7 @@ pub(crate) fn kill_agent_process_group(pid: u32) {
 mod tests {
     use super::*;
     use crate::agent::AgentCoordinator;
+    use crate::agent_contract::AgentEventKind;
     use crate::agent_runtime::{
         AgentJobEvent, PermissionDecision, new_session_id, work_packet_for_goal,
     };
@@ -1027,10 +1333,12 @@ while True:
         write({"jsonrpc":"2.0","id":mid,"result":{"sessionId":"acp-test-session"}})
     elif method == "session/prompt":
         write({"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"plan","content":"1. inspect 2. edit"}}})
+        write({"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hello "}}}})
+        write({"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"world"}}}})
         # Need-you: request permission and wait for client response before finishing.
         write({"jsonrpc":"2.0","id":9001,"method":"session/request_permission","params":{
             "sessionId":"acp-test-session",
-            "toolCall":{"title":"read Cargo.toml"},
+            "toolCall":{"title":"edit src/lib.rs"},
             "options":[
                 {"optionId":"allow-once","name":"Allow once","kind":"allow_once"},
                 {"optionId":"reject-once","name":"Reject once","kind":"reject_once"}
@@ -1043,7 +1351,13 @@ while True:
                 break
             if resp.get("id") == 9001:
                 break
-        write({"jsonrpc":"2.0","method":"session/update","params":{"update":{"sessionUpdate":"tool_call","title":"read Cargo.toml"}}})
+        write({"jsonrpc":"2.0","method":"session/update","params":{"update":{
+            "sessionUpdate":"tool_call",
+            "title":"edit src/lib.rs",
+            "kind":"edit",
+            "locations":[{"path":"src/lib.rs"}],
+            "rawInput":{"path":"src/lib.rs"}
+        }}})
         write({"jsonrpc":"2.0","id":mid,"result":{"stopReason":"end_turn"}})
         break
     else:
@@ -1107,5 +1421,55 @@ while True:
         assert!(saw_permission, "expected session/request_permission");
         assert_eq!(coordinator.run_state(), AgentRunState::Review);
         assert!(coordinator.receipt().len() >= 3);
+        let receipt = coordinator.receipt();
+        assert!(
+            receipt.iter().any(|event| {
+                event.kind == AgentEventKind::PathTouched
+                    && event
+                        .path
+                        .as_ref()
+                        .is_some_and(|path| path.ends_with("src/lib.rs"))
+            }),
+            "expected path_touched for src/lib.rs; receipt={receipt:?}"
+        );
+        assert!(
+            receipt.iter().any(|event| {
+                event.kind == AgentEventKind::Notice && event.summary.contains("agent:")
+            }),
+            "expected coalesced agent message chunk; receipt={receipt:?}"
+        );
+    }
+
+    #[test]
+    fn relativize_strips_cwd_and_file_uri() {
+        let cwd = PathBuf::from("/tmp/project");
+        assert_eq!(
+            relativize_workspace_path("src/main.rs", &cwd).unwrap(),
+            PathBuf::from("src/main.rs")
+        );
+        assert_eq!(
+            relativize_workspace_path("/tmp/project/src/lib.rs", &cwd).unwrap(),
+            PathBuf::from("src/lib.rs")
+        );
+        assert_eq!(
+            relativize_workspace_path("file:///tmp/project/foo.rs", &cwd).unwrap(),
+            PathBuf::from("foo.rs")
+        );
+        assert!(relativize_workspace_path("/other/place.rs", &cwd).is_none());
+        assert!(relativize_workspace_path("../escape.rs", &cwd).is_none());
+    }
+
+    #[test]
+    fn extract_tool_paths_from_locations_and_raw_input() {
+        let cwd = PathBuf::from("/ws");
+        let update = json!({
+            "title": "edit",
+            "locations": [{"path": "/ws/src/a.rs"}, {"path": "src/b.rs"}],
+            "rawInput": {"path": "src/c.rs"}
+        });
+        let paths = extract_tool_paths(&update, &cwd);
+        assert!(paths.iter().any(|path| path == Path::new("src/a.rs")));
+        assert!(paths.iter().any(|path| path == Path::new("src/b.rs")));
+        assert!(paths.iter().any(|path| path == Path::new("src/c.rs")));
     }
 }
