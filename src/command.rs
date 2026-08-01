@@ -57,7 +57,6 @@ pub enum ExCommand {
     Stickies,
     NewSticky,
     AgentRun,
-    AgentActivity,
     AgentCancel,
     AgentDashboard,
 }
@@ -205,13 +204,12 @@ pub fn parse(input: &str) -> Result<ExCommand, String> {
             no_argument(argument, ExCommand::NewSticky)
         }
         "agent" | "agent-run" | "run-agent" => no_argument(argument, ExCommand::AgentRun),
-        "agent-activity" | "agent-status" | "agent-receipt" => {
-            no_argument(argument, ExCommand::AgentActivity)
-        }
         "agent-cancel" | "cancel-agent" | "stop-agent" => {
             no_argument(argument, ExCommand::AgentCancel)
         }
-        "agent-dashboard" | "dashboard" | "agents-dashboard" | "agent-panel" => {
+        // Activity / receipt / status aliases open the same bottom Agents dashboard.
+        "agent-dashboard" | "dashboard" | "agents-dashboard" | "agent-panel" | "agent-activity"
+        | "agent-status" | "agent-receipt" | "agents" => {
             no_argument(argument, ExCommand::AgentDashboard)
         }
         _ => Err(format!("unknown command: {name}")),

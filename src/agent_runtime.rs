@@ -216,7 +216,7 @@ pub fn run_state_label(state: AgentRunState) -> &'static str {
     }
 }
 
-/// Format receipt lines for the activity overlay.
+/// Format session / goal / authority / receipt lines for the Agents dashboard.
 pub fn format_receipt_lines(coordinator: &AgentCoordinator, limit: usize) -> Vec<String> {
     let mut lines = Vec::new();
     if let Some(session) = coordinator.active_session_id() {
