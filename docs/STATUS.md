@@ -1,42 +1,60 @@
-# wscrpt status — SHIP / dual product lanes
+# wscrpt status — ship readiness
 
 **Date:** 2026-08-01  
-**Goal:** open-source **v0.2.2** tonight  
-**Publication tip:** `c3169f1` on `main` = tag **`v0.2.2`**  
-**Prior tags:** `v0.2.0`, `v0.2.1` (never move)
+**Install tag (strangers):** **`v0.2.2`** → `c3169f1`  
+**`main` tip:** may be ahead of the tag (post-tag feature landings are OK; do not move tags)
 
-## Active lanes (do not cross)
+## Ready-to-ship scoreboard
 
-| Lane | Branch / tree | Owner | Handoff |
-| --- | --- | --- | --- |
-| **AGENTS** | `agents/w2-lane` · worktree `wscrpt-agents` | Agents Grok thread | [handoffs/AGENTS_LANE.md](handoffs/AGENTS_LANE.md) |
-| **STICKIES** | recommend `stickies/*` · main tree OK | Stickies Grok thread | [handoffs/STICKIES_LANE.md](handoffs/STICKIES_LANE.md) |
-| **SHIP** | packaging / publish | This ship thread | This file + [PUBLISH_RUNBOOK.md](PUBLISH_RUNBOOK.md) |
-
-Full edit contract: **[LANES.md](LANES.md)**.
-
-### Post-tag rule
-
-- Feature work lands on lane branches, then `main` **after** `v0.2.2`.
-- Do **not** move tag `v0.2.2`.
-- Rebase lane branches onto `origin/main` (`c3169f1`) — history was rewritten for privacy (noreply + path fixtures).
-
-## Shipped / gates
+### Already done (ship-capable without `gh`)
 
 | Gate | Status |
 | --- | --- |
-| Snapshot audit | **Pass** on `c3169f1` |
-| History audit | **Pass** (email + path rewrite force-with-lease) |
-| Tag `v0.2.2` | On origin → `c3169f1` |
-| `main` | Matches tag tip |
-| Install from git tag | `cargo install --git … --tag v0.2.2 --locked` |
-| GitHub Release pages | **Still blocked** — `gh` token invalid; paste `docs/releases/*.md` in UI |
-| Topics / private vuln reporting | **Blocked** on `gh` / settings |
-| crates.io | Dry-run when clean; publish needs `cargo login` |
+| Public repo, MIT, issue/PR templates, CODEOWNERS | Done |
+| Privacy scrub (noreply + path fixtures) | Done; snapshot + **history** audit pass |
+| Tag **`v0.2.2`** on origin | Done — never move |
+| README install → `v0.2.2` | Done |
+| `scripts/verify.sh` on packaging tip | Green (local) |
+| Install from public tag | Verified: `cargo install --git … --tag v0.2.2 --locked` |
+| `cargo publish --dry-run --locked` | Green (needs `cargo login` to actually publish) |
+| SSH push to GitHub | Working (this is enough for code + tags) |
 
-## Remaining (human, ~5 min)
+### When you’re home (~5 min, needs browser / tokens)
+
+| Gate | Why it matters | How |
+| --- | --- | --- |
+| **GitHub Release pages** for 0.2.0 / 0.2.1 / **0.2.2** | Discoverability; nice landing; not required to install from tag | UI: Releases → draft from tag, paste `docs/releases/v0.2.x.md` **or** `gh auth login` then runbook |
+| **Topics** | Search: `terminal editor ide ssh mosh ipad rust` | Repo settings or `gh repo edit … --add-topic` |
+| **Private vulnerability reporting** | SECURITY.md points here | Settings → Code security → enable |
+| **crates.io publish** | `cargo install wscrpt` for people who never clone | `cargo login` then `cargo publish --locked` |
+
+`gh` CLI auth is **optional**. SSH already covers push/tag. Releases can be pure GitHub UI.
+
+### Not ship blockers (honest product)
+
+| Item | Note |
+| --- | --- |
+| Full iPad / Blink matrix | Human confidence gate; prep script exists |
+| Demo GIF | `docs/demo.tape` ready; needs `vhs` |
+| Live ACP as default | Agents lane post-0.2.2 |
+| Sticky checklist fan-out on **`main`** | Landed **after** tag as `e93f934+`; install tag does **not** include it until **v0.2.3** |
+| `app.rs` modularization | Contributor QoL later |
+| Local stashes on Groudon | Lane WIP park — not for remote |
+
+## Lanes
+
+| Lane | Owns | Note |
+| --- | --- | --- |
+| **AGENTS** | `agent*.rs`, dashboard, ACP | Worktree `wscrpt-agents` — rebase on rewritten `main` |
+| **STICKIES** | pad, checklist fan-out | Prefer `stickies/*` branch for post-tag work |
+| **SHIP** | tags, audits, release notes, publish | Freeze product into new tags only |
+
+Contract: [LANES.md](LANES.md).
+
+## Home script (copy-paste when tokens work)
 
 ```sh
+# Optional — UI works without this
 gh auth login -h github.com
 
 gh release create v0.2.0 --title "wscrpt 0.2.0" --notes-file docs/releases/v0.2.0.md --verify-tag || true
@@ -54,21 +72,16 @@ cargo publish --dry-run --locked
 cargo publish --locked
 ```
 
-Or paste release notes via GitHub UI if `gh` stays broken.
+## Definition of “ready”
 
-## Product in v0.2.2
-
-| Item | Status |
+| Bar | Met when |
 | --- | --- |
-| Remote-first editor core (0.2) | Shipped |
-| First-edit cue / trusted Git / Stickies v1 / W0 | In 0.2.1 |
-| Floating Stickies pad | In 0.2.2 |
-| Agents dashboard + fake W2 + sticky brief | In 0.2.2 |
-| Host-auth readiness (no secrets) | In 0.2.2 |
-| Live ACP default | Not claimed — Agents post-0.2.2 |
-| Sticky checklist fan-out (`Esc w C` / `Y`) | **Not in tag** — was README-only WIP; code parked in local stash for Stickies lane |
+| **A — Public installable (met)** | Public repo + green verify culture + tag + install docs + clean audits |
+| **B — Confidently recommend** | A + Release page + crates.io + (optional) short Blink pass |
+| **C — Greatest remote IDE forever** | B + ongoing Agents/Stickies + iPad matrix + demo |
+
+Tonight’s code ship is **bar A**. Bar B is the home errand. Bar C is the product roadmap.
 
 ## Live log
 
-- **2026-08-01 SHIP night:** History scrub (noreply + `/path/to/` fixtures) via filter-repo; `main` + `v0.2.2` → `c3169f1`. Concurrent lane WIP stashed on Groudon (`stash@{1}`). Incomplete post-tag README checklist commit dropped so tag stays honest.
-- **Lanes:** rebase on rewritten `main` before next land. Local git `user.email` for this repo set to noreply.
+- **2026-08-01:** `v0.2.2` / `c3169f1` public; history scrubbed; SSH push fine; Releases=0, topics=[], no crates.io yet. Post-tag checklist fan-out on `main` — cut **v0.2.3** only if install should include it.
