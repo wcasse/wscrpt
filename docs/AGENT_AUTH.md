@@ -99,4 +99,4 @@ required_env = ["SOME_API_KEY"]   # names only — values stay in the shell
 
 - Agent roadmap: [AGENT_NATIVE_ROADMAP.md](AGENT_NATIVE_ROADMAP.md)  
 - Default config template: `wscrpt --print-default-config`  
-- Runtime keys: `Esc w a` run · `Esc w A` receipt · `Esc w D` dashboard · `Esc w x` cancel  
+- Runtime keys: `Esc w a` run · `Esc w D` Agents dashboard (roster + receipt) · `Esc w x` cancel  
