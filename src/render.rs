@@ -577,7 +577,7 @@ fn row_plain_text(row: &Row) -> String {
     text
 }
 
-fn paint_agent_dashboard(app: &App, layout: Layout, panel_height: usize, rows: &mut [Row]) {
+fn paint_agent_dashboard(app: &mut App, layout: Layout, panel_height: usize, rows: &mut [Row]) {
     if panel_height == 0 || layout.content_height < panel_height {
         return;
     }
@@ -603,6 +603,7 @@ fn paint_agent_dashboard(app: &App, layout: Layout, panel_height: usize, rows: &
     rows[panel_top] = rule;
 
     let body_rows = panel_height.saturating_sub(1);
+    // Cache hits skip format_receipt_lines on every paint while Working.
     let view = app.agent_dashboard_view(body_rows);
     for (index, line) in view.lines.iter().enumerate() {
         let y = panel_top + 1 + index;

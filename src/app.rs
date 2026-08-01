@@ -855,6 +855,28 @@ struct AgentUiState {
     pending_permission: Option<crate::agent_runtime::PendingPermission>,
     /// True after auto (or manual) review handoff opened Git for this run.
     review_handoff_done: bool,
+    /// Rebuilt only when receipt / run state / height changes (paint hot path).
+    dashboard_cache: Option<AgentDashboardCache>,
+}
+
+/// Cached Agents dashboard body; invalidated via generation key, not a dirty flag.
+#[derive(Clone, Debug)]
+struct AgentDashboardCache {
+    key: AgentDashboardCacheKey,
+    view: AgentDashboardView,
+}
+
+/// Cheap identity for when the dashboard must be rebuilt.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct AgentDashboardCacheKey {
+    visible_rows: usize,
+    receipt_len: usize,
+    last_sequence: u64,
+    run_state: crate::agent_contract::AgentRunState,
+    job_live: bool,
+    active: bool,
+    pending_request_id: u64,
+    pending_option_count: usize,
 }
 
 /// One display row in the bottom agent dashboard.
@@ -1017,6 +1039,7 @@ impl App {
                 dashboard_visible: false,
                 pending_permission: None,
                 review_handoff_done: false,
+                dashboard_cache: None,
             },
             sticky_pad: crate::stickies::StickyPad::default(),
             lsp: LspState {
@@ -10472,8 +10495,38 @@ impl App {
             || !self.agent.coordinator.receipt().is_empty()
     }
 
-    /// Single Agents surface: roster + full receipt detail (replaces the old activity popup).
-    pub fn agent_dashboard_view(&self, visible_rows: usize) -> AgentDashboardView {
+    fn agent_dashboard_cache_key(&self, visible_rows: usize) -> AgentDashboardCacheKey {
+        let pending = self.agent.pending_permission.as_ref();
+        AgentDashboardCacheKey {
+            visible_rows,
+            receipt_len: self.agent.coordinator.receipt().len(),
+            last_sequence: self.agent.coordinator.last_sequence(),
+            run_state: self.agent.coordinator.run_state(),
+            job_live: self.agent.job.is_some(),
+            active: self.agent.coordinator.is_active(),
+            pending_request_id: pending.map(|pending| pending.request_id).unwrap_or(0),
+            pending_option_count: pending.map(|pending| pending.options.len()).unwrap_or(0),
+        }
+    }
+
+    /// Single Agents surface: roster + receipt (cached across frames when unchanged).
+    pub fn agent_dashboard_view(&mut self, visible_rows: usize) -> &AgentDashboardView {
+        let key = self.agent_dashboard_cache_key(visible_rows);
+        if self
+            .agent
+            .dashboard_cache
+            .as_ref()
+            .is_some_and(|cache| cache.key == key)
+        {
+            return &self.agent.dashboard_cache.as_ref().expect("checked").view;
+        }
+        let view = self.build_agent_dashboard_view(visible_rows);
+        self.agent.dashboard_cache = Some(AgentDashboardCache { key, view });
+        &self.agent.dashboard_cache.as_ref().expect("just set").view
+    }
+
+    /// Build dashboard lines without consulting the paint cache.
+    fn build_agent_dashboard_view(&self, visible_rows: usize) -> AgentDashboardView {
         let mut lines = Vec::new();
         if visible_rows == 0 {
             return AgentDashboardView { lines };
@@ -11084,9 +11137,7 @@ impl App {
             } else if let Some(message) = finish_message {
                 self.status(message);
             }
-        } else if !urgent
-            && let Some(message) = progress_status
-        {
+        } else if !urgent && let Some(message) = progress_status {
             self.status(message);
         }
         if urgent {
@@ -20025,6 +20076,40 @@ done
         assert!(prompt.labels[0].contains("main — Function · demo"));
         app.commit_prompt();
         assert_eq!(app.workspace.active().cursor, 3);
+    }
+
+    #[test]
+    fn agent_dashboard_cache_reuses_allocation_when_unchanged() {
+        let mut app = app_with_text("cache me");
+        let _ = app.agent_dashboard_view(8);
+        let first = app
+            .agent
+            .dashboard_cache
+            .as_ref()
+            .expect("cache filled")
+            .view
+            .lines
+            .as_ptr();
+        let _ = app.agent_dashboard_view(8);
+        let second = app
+            .agent
+            .dashboard_cache
+            .as_ref()
+            .expect("cache still filled")
+            .view
+            .lines
+            .as_ptr();
+        assert_eq!(first, second, "unchanged key should not rebuild lines");
+        // Height change must rebuild.
+        let _ = app.agent_dashboard_view(12);
+        let third = app
+            .agent
+            .dashboard_cache
+            .as_ref()
+            .expect("cache for new height")
+            .key
+            .visible_rows;
+        assert_eq!(third, 12);
     }
 
     #[test]
