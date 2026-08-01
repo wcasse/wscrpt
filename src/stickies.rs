@@ -1162,6 +1162,11 @@ impl StickyPad {
             self.focused = false;
             Ok("Sticky pad hidden")
         } else if self.visible {
+            // Visible-but-unfocused (session restore or Esc unfocus): load a note
+            // if the shell is empty so typing works immediately.
+            if self.note.is_none() {
+                self.open_most_recent_or_blank(library)?;
+            }
             self.focused = true;
             Ok("Sticky pad focused — type to jot · Esc returns to editor")
         } else {
@@ -1173,6 +1178,14 @@ impl StickyPad {
             self.focused = true;
             Ok("Sticky pad open — type to jot · Esc editor · Esc w k hide")
         }
+    }
+
+    /// Ensure a note is loaded without focusing (session restore of visible pad).
+    pub fn ensure_note_for_visible(&mut self, library: &StickyLibrary) -> Result<(), StickyError> {
+        if self.note.is_none() {
+            self.open_most_recent_or_blank(library)?;
+        }
+        Ok(())
     }
 
     pub fn show_new(
@@ -1293,8 +1306,10 @@ impl StickyPad {
         let Some(id) = self.note.as_ref().map(|n| n.id.clone()) else {
             return Ok(());
         };
-        self.dirty = false;
+        // Delete first — only clear dirty/note after success so a failed
+        // delete still lets later unfocus/toggle save in-memory edits.
         library.delete(&id)?;
+        self.dirty = false;
         self.note = None;
         self.cursor = 0;
         self.scroll = 0;
@@ -1365,7 +1380,7 @@ impl StickyPad {
         body.insert(byte, ch);
         self.cursor = cursor + 1;
         self.dirty = true;
-        self.ensure_cursor_visible(STICKY_PAD_BODY_ROWS);
+        self.ensure_cursor_visible(Self::default_body_rows());
     }
 
     pub fn insert_str(&mut self, text: &str) {
@@ -1385,7 +1400,7 @@ impl StickyPad {
         self.body_mut().replace_range(start..end, "");
         self.cursor = prev;
         self.dirty = true;
-        self.ensure_cursor_visible(STICKY_PAD_BODY_ROWS);
+        self.ensure_cursor_visible(Self::default_body_rows());
     }
 
     pub fn delete_forward(&mut self) {
@@ -1409,7 +1424,7 @@ impl StickyPad {
             return;
         }
         self.cursor = previous_grapheme_start(self.body(), self.cursor);
-        self.ensure_cursor_visible(STICKY_PAD_BODY_ROWS);
+        self.ensure_cursor_visible(Self::default_body_rows());
     }
 
     pub fn move_right(&mut self) {
@@ -1417,7 +1432,7 @@ impl StickyPad {
             return;
         }
         self.cursor = next_grapheme_end(self.body(), self.cursor);
-        self.ensure_cursor_visible(STICKY_PAD_BODY_ROWS);
+        self.ensure_cursor_visible(Self::default_body_rows());
     }
 
     pub fn move_up(&mut self) {
@@ -1430,7 +1445,7 @@ impl StickyPad {
         } else {
             self.cursor = cursor_at_line_col(self.body(), line - 1, col);
         }
-        self.ensure_cursor_visible(STICKY_PAD_BODY_ROWS);
+        self.ensure_cursor_visible(Self::default_body_rows());
     }
 
     pub fn move_down(&mut self) {
@@ -1444,7 +1459,17 @@ impl StickyPad {
         } else {
             self.cursor = cursor_at_line_col(self.body(), line + 1, col);
         }
-        self.ensure_cursor_visible(STICKY_PAD_BODY_ROWS);
+        self.ensure_cursor_visible(Self::default_body_rows());
+    }
+
+    /// Interior body rows for a full card height (top + title + body + footer + bottom).
+    pub const fn body_rows_for_height(height: usize) -> usize {
+        let rows = height.saturating_sub(4);
+        if rows < 3 { 3 } else { rows }
+    }
+
+    const fn default_body_rows() -> usize {
+        Self::body_rows_for_height(STICKY_PAD_HEIGHT)
     }
 
     fn ensure_cursor_visible(&mut self, body_rows: usize) {
@@ -1508,7 +1533,7 @@ impl StickyPad {
         }
 
         let footer = if self.focused {
-            format!(" Esc editor · [/] notes · ^S save{index} ")
+            format!(" Esc editor · ^P/^N notes · ^S save{index} ")
         } else {
             format!(" Esc w k focus · Esc w K new{index} ")
         };

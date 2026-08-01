@@ -2,13 +2,23 @@
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-08-01
+
 ### Added
 
 - **Receipt → sticky log write-back (S4):** sticky-attached agent runs tag receipt events with `artifact_ref = sticky:<id>`; after REVIEW, `Esc w A` / `:apply-receipt` appends a bounded `## Log` block from the receipt (human confirm only — never silent). Coexists with checklist apply (`Esc w Y`).
+- Ship-surface regression tests for sticky pad + Agents dashboard coexistence, fake agent review, checklist write-back, and sticky-focused paste.
+- Public launch kit assets and demo GIF under `docs/assets/` (README pin matches this tag).
+
+### Fixed
+
+- **Sticky pad paste:** while the pad is focused, paste inserts into the note body instead of the active document.
+- Incomplete `Esc w A` wiring that could leave the tree non-compiling during concurrent lane work.
 
 ### Changed
 
 - `Esc w A` is bound to **Apply Receipt Log to Sticky** (was unbound after the Agent Activity popup removal).
+- Install documentation and honesty pin move from `v0.2.2` to **`v0.2.3`**.
 
 ## [0.2.2] - 2026-08-01
 

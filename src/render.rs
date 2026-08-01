@@ -500,7 +500,8 @@ fn paint_sticky_pad(app: &App, content_layout: Layout, rows: &mut [Row]) {
     let edge = Style::new(Color::AnsiValue(94), Color::AnsiValue(222));
     let left_keep = Style::new(Color::Reset, Color::Reset);
 
-    let body_rows = frame.height.saturating_sub(3).max(3);
+    // Card chrome: top border + title + body + footer + bottom border (= height).
+    let body_rows = crate::stickies::StickyPad::body_rows_for_height(frame.height);
     let inner_width = frame.width.saturating_sub(2);
     let lines = app.sticky_pad_view(body_rows, inner_width);
 

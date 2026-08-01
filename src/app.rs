@@ -1153,6 +1153,26 @@ impl App {
 
     pub fn set_screen_size(&mut self, size: (u16, u16)) {
         self.ui.screen_size = size;
+        // Narrow/short terminals cannot paint the pad (frame_for returns None).
+        // Drop focus so keys do not edit an invisible card.
+        if self.sticky_pad.is_focused() && !self.sticky_pad_can_paint() {
+            self.sticky_pad.focused = false;
+            self.status("Sticky pad unfocused — terminal too small to paint the card");
+        }
+    }
+
+    /// Whether the floating pad has room to paint in the current screen size.
+    fn sticky_pad_can_paint(&self) -> bool {
+        let layout = Layout::calculate(
+            self.ui.screen_size.0,
+            self.ui.screen_size.1,
+            self.workspace.active().document.line_count(),
+            self.config.line_numbers,
+        );
+        let agent_h = crate::render::agent_dashboard_height(self, layout);
+        let content_height = layout.content_height.saturating_sub(agent_h);
+        crate::stickies::StickyPad::frame_for(layout.width, layout.content_y, content_height)
+            .is_some()
     }
 
     pub fn soft_wrap_enabled(&self) -> bool {
@@ -1217,6 +1237,13 @@ impl App {
         self.sticky_pad.visible = layout.sticky_pad_visible;
         // Restoring visibility does not steal focus from the editor.
         self.sticky_pad.focused = false;
+        // Load a note so a restored visible pad is not an empty untypable shell.
+        if layout.sticky_pad_visible
+            && self.sticky_pad.note.is_none()
+            && let Ok(library) = self.sticky_library()
+        {
+            let _ = self.sticky_pad.ensure_note_for_visible(&library);
+        }
     }
 
     pub fn apply_session_recent_files(&mut self, recent_files: Vec<PathBuf>) {
@@ -4269,11 +4296,7 @@ impl App {
             }
             UiMode::Edit => {
                 if self.sticky_pad.is_focused() {
-                    if let Ok(library) = self.sticky_library() {
-                        let _ = self.sticky_pad.unfocus_save(&library);
-                    }
-                    self.ui.full_redraw = true;
-                    self.ui.status = None;
+                    self.unfocus_sticky_pad();
                     return;
                 }
                 self.cancel_pending_lsp_ui_requests();
@@ -10272,21 +10295,40 @@ impl App {
     }
 
     fn handle_sticky_pad_key(&mut self, key: KeyEvent) {
-        // Action layer still reachable? Prefer Esc unfocus; Ctrl-K can still enter action.
+        // Mirror editor Action routing so SSH/Blink Alt chords and Ctrl-K work
+        // while the pad is focused. Esc (when Action is idle) returns to the editor.
+        if !self.ui.keymap.is_active()
+            && legacy_escape_modifiers(key.modifiers)
+            && let Some(action_key) = legacy_escape_action_key(key.code)
+        {
+            let _ = self.ui.keymap.feed(crate::keymap::Key::Escape);
+            if let Some(resolution) = self.ui.keymap.feed(action_key) {
+                self.apply_action_resolution(resolution);
+            }
+            return;
+        }
+
         if let Some(normalized) = normalize_action_key(key, self.ui.keymap.is_active()) {
-            // Esc while focused unfocuses the pad (does not enter Action).
+            // Bare Esc while Action is idle: unfocus pad (editor gets the next Esc).
             if matches!(normalized, crate::keymap::Key::Escape) && !self.ui.keymap.is_active() {
-                if let Ok(library) = self.sticky_library() {
-                    let _ = self.sticky_pad.unfocus_save(&library);
-                }
-                self.ui.full_redraw = true;
-                self.status("Sticky pad unfocused — Esc w k to hide or re-focus");
+                self.unfocus_sticky_pad();
                 return;
             }
             if let Some(resolution) = self.ui.keymap.feed(normalized) {
                 self.apply_action_resolution(resolution);
                 return;
             }
+            // Prefix wait (e.g. after Ctrl-K / Esc w) — do not fall through to edit.
+            if self.ui.keymap.is_active() {
+                return;
+            }
+        } else if self.ui.keymap.is_active() {
+            // Action armed but key is not part of the layer (Enter/Backspace/…).
+            // Cancel instead of mutating the sticky — same as handle_edit_key.
+            self.arm_edit_transition();
+            self.ui.keymap.cancel();
+            self.error("That key is not available in the Action layer");
+            return;
         }
 
         let Ok(library) = self.sticky_library() else {
@@ -10296,9 +10338,8 @@ impl App {
 
         match key.code {
             KeyCode::Esc => {
-                let _ = self.sticky_pad.unfocus_save(&library);
-                self.ui.full_redraw = true;
-                self.status("Sticky pad unfocused");
+                // Defensive: normalize path usually handles Esc first.
+                self.unfocus_sticky_pad();
             }
             KeyCode::Enter => {
                 self.sticky_pad.insert_char('\n');
@@ -10328,24 +10369,35 @@ impl App {
                 self.sticky_pad.move_down();
                 self.ui.full_redraw = true;
             }
-            KeyCode::Char('[') => {
-                if let Err(error) = self.sticky_pad.cycle(&library, -1) {
-                    self.error(error.to_string());
-                }
-                self.ui.full_redraw = true;
-            }
-            KeyCode::Char(']') => {
-                if let Err(error) = self.sticky_pad.cycle(&library, 1) {
-                    self.error(error.to_string());
-                }
-                self.ui.full_redraw = true;
-            }
+            // Bare [ ] type into the body (checklist markdown). Cycle notes with ^P/^N.
             KeyCode::Char(ch)
                 if !key.modifiers.intersects(
                     KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER,
                 ) =>
             {
                 self.sticky_pad.insert_char(ch);
+                self.ui.full_redraw = true;
+            }
+            KeyCode::Char('p') | KeyCode::Char('P')
+                if key.modifiers.contains(KeyModifiers::CONTROL)
+                    && !key.modifiers.intersects(
+                        KeyModifiers::ALT | KeyModifiers::SUPER | KeyModifiers::SHIFT,
+                    ) =>
+            {
+                if let Err(error) = self.sticky_pad.cycle(&library, -1) {
+                    self.error(error.to_string());
+                }
+                self.ui.full_redraw = true;
+            }
+            KeyCode::Char('n') | KeyCode::Char('N')
+                if key.modifiers.contains(KeyModifiers::CONTROL)
+                    && !key.modifiers.intersects(
+                        KeyModifiers::ALT | KeyModifiers::SUPER | KeyModifiers::SHIFT,
+                    ) =>
+            {
+                if let Err(error) = self.sticky_pad.cycle(&library, 1) {
+                    self.error(error.to_string());
+                }
                 self.ui.full_redraw = true;
             }
             KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -10370,6 +10422,25 @@ impl App {
                 self.ui.full_redraw = true;
             }
             _ => {}
+        }
+    }
+
+    /// Unfocus the sticky pad, reporting save failures instead of lying about success.
+    fn unfocus_sticky_pad(&mut self) {
+        let Ok(library) = self.sticky_library() else {
+            self.error("Sticky storage unavailable — pad still focused");
+            return;
+        };
+        match self.sticky_pad.unfocus_save(&library) {
+            Ok(()) => {
+                self.ui.full_redraw = true;
+                self.status("Sticky pad unfocused — Esc w k to hide or re-focus");
+            }
+            Err(error) => {
+                // focused remains true when save failed (unfocus_save bails first).
+                self.error(format!("Could not save sticky: {error}"));
+                self.ui.full_redraw = true;
+            }
         }
     }
 
@@ -12535,6 +12606,105 @@ mod tests {
                 "log should include receipt bullets: {body:?}"
             );
             assert!(app.agent.pending_receipt.is_none());
+        });
+    }
+
+    #[test]
+    fn ship_sticky_pad_brackets_type_and_ctrl_cycles() {
+        with_sticky_state_home(|| {
+            let root = tempfile::tempdir().unwrap();
+            let mut app = app_with_workspace_file(root.path(), "a.md", "a\n");
+            app.execute_action(Action::NewSticky);
+            // First note body: type checklist markers with bare brackets.
+            app.handle_event(Event::Paste("- ".to_owned()));
+            app.handle_event(key(KeyCode::Char('[')));
+            app.handle_event(Event::Paste(" ".to_owned()));
+            app.handle_event(key(KeyCode::Char(']')));
+            app.handle_event(Event::Paste(" item\n".to_owned()));
+            let body = app
+                .sticky_pad
+                .note
+                .as_ref()
+                .map(|n| n.body_markdown.clone())
+                .unwrap_or_default();
+            assert!(
+                body.contains("- [ ] item"),
+                "bare [ ] should type into sticky body: {body:?}"
+            );
+
+            // Second note; Ctrl-P/N cycle without eating brackets.
+            app.execute_action(Action::NewSticky);
+            app.handle_event(Event::Paste("second note\n".to_owned()));
+            let id_second = app.sticky_pad.note.as_ref().unwrap().id.clone();
+            // Ctrl-P previous
+            app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+                KeyCode::Char('p'),
+                KeyModifiers::CONTROL,
+            )));
+            assert_ne!(
+                app.sticky_pad.note.as_ref().map(|n| n.id.as_str()),
+                Some(id_second.as_str()),
+                "Ctrl-P should cycle to another sticky"
+            );
+        });
+    }
+
+    #[test]
+    fn ship_sticky_pad_action_cancel_does_not_edit_body() {
+        with_sticky_state_home(|| {
+            let root = tempfile::tempdir().unwrap();
+            let mut app = app_with_workspace_file(root.path(), "b.md", "b\n");
+            app.execute_action(Action::NewSticky);
+            app.handle_event(Event::Paste("keep\n".to_owned()));
+            let before = app.sticky_pad.note.as_ref().unwrap().body_markdown.clone();
+            // Ctrl-K enters Action while pad focused.
+            app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+                KeyCode::Char('k'),
+                KeyModifiers::CONTROL,
+            )));
+            assert!(app.ui.keymap.is_active(), "Ctrl-K should arm Action on pad");
+            // Enter must cancel Action, not insert a newline.
+            app.handle_event(key(KeyCode::Enter));
+            assert!(!app.ui.keymap.is_active());
+            let after = app.sticky_pad.note.as_ref().unwrap().body_markdown.clone();
+            assert_eq!(before, after, "Action cancel must not mutate sticky body");
+        });
+    }
+
+    #[test]
+    fn ship_sticky_session_restore_loads_note_when_visible() {
+        with_sticky_state_home(|| {
+            let root = tempfile::tempdir().unwrap();
+            let mut app = app_with_workspace_file(root.path(), "c.md", "c\n");
+            app.execute_action(Action::NewSticky);
+            app.handle_event(Event::Paste("restored body\n".to_owned()));
+            // Save so the note exists on disk for ensure_note_for_visible.
+            if let Ok(library) = app.sticky_library() {
+                let _ = app.sticky_pad.save_if_dirty(&library);
+            }
+            let id = app.sticky_pad.note.as_ref().unwrap().id.clone();
+            // Simulate restore: visible, unfocused, empty in-memory shell.
+            app.sticky_pad.note = None;
+            app.sticky_pad.dirty = false;
+            app.sticky_pad.focused = false;
+            app.apply_session_layout(LayoutFlags {
+                soft_wrap: app.ui.soft_wrap,
+                workspace_tree_visible: app.project.sidebar_visible,
+                problems_visible: false,
+                agent_dashboard_visible: app.agent.dashboard_visible,
+                sticky_pad_visible: true,
+            });
+            assert!(app.sticky_pad.visible);
+            assert!(!app.sticky_pad.focused);
+            assert!(
+                app.sticky_pad.note.is_some(),
+                "restored visible pad should load a note"
+            );
+            let body = app.sticky_pad.note.as_ref().unwrap().body_markdown.clone();
+            assert!(
+                body.contains("restored body") || app.sticky_pad.note.as_ref().unwrap().id == id,
+                "expected loaded sticky content, got {body:?}"
+            );
         });
     }
 
