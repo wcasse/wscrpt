@@ -1,7 +1,7 @@
 # wscrpt status — ship readiness
 
 **Date:** 2026-08-01  
-**Install tag (strangers):** **`v0.2.3`** (after this cut)  
+**Install tag (strangers):** **`v0.2.3`** → `4d25883`  
 **Prior tags:** `v0.2.0`, `v0.2.1`, `v0.2.2` — **never move**
 
 ## Ready-to-ship scoreboard
@@ -11,11 +11,11 @@
 | Gate | Status |
 | --- | --- |
 | Public repo, MIT, CI | Done |
-| Privacy / path history scrub | In progress for residual design-doc paths; tip clean |
-| Tag **`v0.2.3`** | Cutting now |
-| README install → `v0.2.3` | Packaging |
-| `scripts/verify.sh` | Required green on tip before tag |
-| Sticky paste fix, S4 `Esc w A`, checklist, pad+dashboard tests | In 0.2.3 body |
+| Privacy / path history scrub | **Pass** (snapshot + history) after force-with-lease rewrite |
+| Tag **`v0.2.3`** | On origin → `4d25883` |
+| README install → `v0.2.3` | Done |
+| Install from public tag | Verified `cargo install --git … --tag v0.2.3 --locked` |
+| Sticky paste fix, S4 `Esc w A`, checklist, pad UX polish | In 0.2.3 body |
 
 ### Home (~5 min, tokens)
 
