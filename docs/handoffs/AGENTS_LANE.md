@@ -2,10 +2,19 @@
 
 **Owner:** Agents-lane Grok thread  
 **Branch / worktree:** `agents/w2-lane` @ `/Users/wcasse/WILL PROJECTS/wscrpt-agents`  
-**Base tip when this note written:** `0f2999d` + ACP process wire (local)  
+**Tip (pushed):** `8f442b6` (+ review handoff, live-demo checklist; tip may advance)  
 **Updated:** 2026-08-01
 
 Sister lane: **STICKIES** owns the floating notepad. Contract: [../LANES.md](../LANES.md).
+
+---
+
+## AFTER COMPACTION — first prompt (do this first)
+
+> **How else could you improve the performance of the agentic integration of this IDE prioritizing performance, simplicity, and benefit to the user?**  
+> Context: launch tonight; Agents lane owns bottom dashboard + ACP; Stickies is a separate thread. Form follows function. Worktree: `wscrpt-agents` / `agents/w2-lane`. Do not touch stickies. Prefer small high-leverage perf/UX wins over new features.
+
+**Resume order:** read this file → [AGENTS_LIVE_DEMO.md](AGENTS_LIVE_DEMO.md) → implement top item under **Performance backlog** below (or re-rank with Will).
 
 ## Product truth (Agents)
 
@@ -44,8 +53,34 @@ No separate Agent Activity popup. Receipt/detail lives in the dashboard via `for
 
 ## Next work (priority order)
 
-1. Human live ACP smoke (see [AGENTS_LIVE_DEMO.md](AGENTS_LIVE_DEMO.md)).
-2. Optional: linked worktree isolation for agent runs (roadmap).
+1. **Performance / simplicity backlog** (below) — primary focus until launch.
+2. Human live ACP smoke (see [AGENTS_LIVE_DEMO.md](AGENTS_LIVE_DEMO.md)).
+3. Optional later: linked worktree isolation (roadmap); W3 review packets.
+
+## Performance backlog (perf → simplicity → user benefit)
+
+Ranked for **tonight’s launch**: ship small wins that keep SSH/iPad responsive, keep one mental model (dashboard + existing Git), and avoid new surfaces.
+
+| Rank | Item | Why (P/S/U) | Effort | Where |
+| --- | --- | --- | --- | --- |
+| **1** | **Throttle agent UI redraws** while live | P: fewer full paints over mosh; U: less flicker | S | `poll_agent_events` → coalesce admits into one redraw/status per poll budget (reuse background redraw throttle pattern) |
+| **2** | **Dashboard view: cheap path** | P: avoid re-`format_receipt_lines` + string thrash every frame; S: cache last N lines invalidated on admit | S–M | `agent_dashboard_view` / paint |
+| **3** | **Bound ACP stdout + drop backpressure** | P: stuck agent if channel full; U: predictable cancel | S | `EVENT_CAPACITY`, non-blocking send or drop oldest Notice/chunk flushes; never block kill path |
+| **4** | **Smarter review handoff** | P: skip double virtual buffers when idle/clean; U: less noise | S | `handoff_agent_review`: only open status if git.changes > 0 or paths non-empty; single path → prefer **diff only** |
+| **5** | **Defer Git status shell-out** | P: review handoff currently runs `git status` sync on UI thread | M | Snapshot already in `GitState` when Ready — paint from cache; optional async refresh |
+| **6** | **Status-line rate limit** | P/U: every admit rewrites footer; keep last summary, update footer ≤ ~10 Hz while Working | S | `poll_agent_events` |
+| **7** | **Chunk coalesce tuning** | P: fewer receipt events; U: still readable “agent: …” lines | S | `CHUNK_FLUSH_*` constants; maybe status-only for chunks, receipt only on flush-to-plan/tool |
+| **8** | **Fake path as default forever for demos** | S/U: zero risk in CI/iPad demos; process mode opt-in (already) | — | Keep; document in live demo only |
+| **Defer** | Full ACP SDK / FS-terminal client | Complex; little launch ROI | L | Not tonight |
+| **Defer** | Worktree isolation | Benefit high, risk high pre-launch | L | Roadmap |
+
+### Recommendation (pick for next code turn)
+
+**#1 + #4 together** if time for one PR:  
+1) one redraw per event batch,  
+2) quieter review handoff (status only when dirt/paths; else status line only).  
+
+Highest **user-felt** win on remote links with almost no product surface change.
 
 ## Do not
 
@@ -73,6 +108,7 @@ cargo test --all-targets --all-features --locked
 
 ## Log
 
+- **2026-08-01:** Performance backlog + compaction first-prompt planted (throttle redraw, cheap dashboard, quieter handoff).
 - **2026-08-01:** Live demo checklist: [AGENTS_LIVE_DEMO.md](AGENTS_LIVE_DEMO.md) (host has grok + auth; config still fake by default).
 - **2026-08-01:** Review handoff: auto-open Git status (+ single path diff); Esc w G / :agent-review.
 - **2026-08-01:** Richer ACP map: path_touched from tool locations; coalesced message chunks.
