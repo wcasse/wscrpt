@@ -21,6 +21,10 @@ use crate::visual::{VisualAnchor, VisualMetrics, VisualRow};
 const MIN_WIDTH_FOR_PROJECT_SIDEBAR: usize = 72;
 const MIN_EDITOR_WIDTH_WITH_PROJECT_SIDEBAR: usize = 48;
 const MAX_PROJECT_SIDEBAR_WIDTH: usize = 30;
+/// Bottom agent dashboard needs enough vertical chrome for editor + panel.
+const MIN_HEIGHT_FOR_AGENT_DASHBOARD: usize = 14;
+const MIN_AGENT_DASHBOARD_HEIGHT: usize = 5;
+const MAX_AGENT_DASHBOARD_HEIGHT: usize = 9;
 
 /// A fixed twelve-step xterm-256 hue wheel for buffer tabs.
 ///
@@ -285,15 +289,26 @@ impl Renderer {
             app.config().line_numbers,
         );
         let sidebar_width = project_sidebar_width(app, full_layout);
+        let agent_panel_height = agent_dashboard_height(app, full_layout);
         let editor_width = full_layout.width.saturating_sub(sidebar_width);
-        let editor_layout = Layout::calculate(
+        let mut editor_layout = Layout::calculate(
             editor_width as u16,
             size.1,
             app.workspace().active().document.line_count(),
             app.config().line_numbers,
         );
+        // Reserve bottom content rows for the agent dashboard (status/footer stay).
+        editor_layout.content_height = editor_layout
+            .content_height
+            .saturating_sub(agent_panel_height);
         app.prepare_viewport(editor_layout);
-        let (rows, cursor) = build_frame(app, full_layout, editor_layout, sidebar_width);
+        let (rows, cursor) = build_frame(
+            app,
+            full_layout,
+            editor_layout,
+            sidebar_width,
+            agent_panel_height,
+        );
 
         if self.previous_size != size || self.invalidated {
             queue!(
@@ -361,11 +376,27 @@ pub(crate) fn project_sidebar_width(app: &App, layout: Layout) -> usize {
     )
 }
 
+/// Rows reserved at the bottom of the content band for the agent dashboard.
+pub(crate) fn agent_dashboard_height(app: &App, layout: Layout) -> usize {
+    if !app.agent_dashboard_visible()
+        || layout.too_small
+        || layout.height < MIN_HEIGHT_FOR_AGENT_DASHBOARD
+        || layout.content_height < MIN_AGENT_DASHBOARD_HEIGHT + 3
+    {
+        return 0;
+    }
+    let target =
+        (layout.content_height / 4).clamp(MIN_AGENT_DASHBOARD_HEIGHT, MAX_AGENT_DASHBOARD_HEIGHT);
+    // Keep at least three editor content rows when the panel is open.
+    target.min(layout.content_height.saturating_sub(3))
+}
+
 fn build_frame(
     app: &mut App,
     layout: Layout,
     editor_layout: Layout,
     sidebar_width: usize,
+    agent_panel_height: usize,
 ) -> (Vec<Row>, Option<(u16, u16)>) {
     let mut rows = vec![Row::default(); layout.height];
     if layout.height == 0 || layout.width == 0 {
@@ -390,17 +421,23 @@ fn build_frame(
         )
     });
     let wrapped_rows = wrapped_rows.and_then(Result::ok);
+    // Editor + project sidebar only fill the content band above the agent panel.
+    let mut content_layout = layout;
+    content_layout.content_height = layout.content_height.saturating_sub(agent_panel_height);
     if sidebar_width > 0 {
         build_content_with_project_sidebar(
             app,
-            layout,
+            content_layout,
             editor_layout,
             sidebar_width,
             &mut rows,
             wrapped_rows.as_deref(),
         );
     } else {
-        build_editor_rows(app, layout, &mut rows, wrapped_rows.as_deref());
+        build_editor_rows(app, content_layout, &mut rows, wrapped_rows.as_deref());
+    }
+    if agent_panel_height > 0 {
+        paint_agent_dashboard(app, layout, agent_panel_height, &mut rows);
     }
     rows[layout.status_y] = build_status(app, layout.width);
     let prompt_window = app
@@ -427,6 +464,65 @@ fn build_frame(
         })
     };
     (rows, cursor)
+}
+
+fn paint_agent_dashboard(app: &App, layout: Layout, panel_height: usize, rows: &mut [Row]) {
+    if panel_height == 0 || layout.content_height < panel_height {
+        return;
+    }
+    let panel_top = layout.content_y + layout.content_height.saturating_sub(panel_height);
+    // editor_layout already used a reduced content_height equal to
+    // layout.content_height - panel_height, so panel_top aligns with the first
+    // free content row under the editor.
+    let base = Style::new(Color::AnsiValue(250), Color::AnsiValue(236));
+    let border = Style::new(Color::AnsiValue(240), Color::AnsiValue(236));
+    let title = Style::new(Color::Black, Color::AnsiValue(180)).bold();
+    let active = Style::new(Color::AnsiValue(159), Color::AnsiValue(236)).bold();
+    let needs = Style::new(Color::AnsiValue(222), Color::AnsiValue(236)).bold();
+    let review = Style::new(Color::AnsiValue(157), Color::AnsiValue(236)).bold();
+    let idle = Style::new(Color::AnsiValue(245), Color::AnsiValue(236));
+    let receipt = Style::new(Color::AnsiValue(252), Color::AnsiValue(236));
+    let hint = Style::new(Color::AnsiValue(244), Color::AnsiValue(236));
+    let muted = Style::new(Color::AnsiValue(242), Color::AnsiValue(236));
+
+    // Horizontal rule row (first panel line).
+    let mut rule = Row::default();
+    rule.push_fitted(&"─".repeat(layout.width.min(512)), border, layout.width);
+    rule.pad_to(layout.width, border);
+    rows[panel_top] = rule;
+
+    let body_rows = panel_height.saturating_sub(1);
+    let view = app.agent_dashboard_view(body_rows);
+    for (index, line) in view.lines.iter().enumerate() {
+        let y = panel_top + 1 + index;
+        if y >= layout.content_y + layout.content_height || y >= layout.status_y {
+            break;
+        }
+        let style = match line.emphasis {
+            crate::app::AgentDashboardEmphasis::Title => title,
+            crate::app::AgentDashboardEmphasis::RunActive => active,
+            crate::app::AgentDashboardEmphasis::RunNeedsYou => needs,
+            crate::app::AgentDashboardEmphasis::RunReview => review,
+            crate::app::AgentDashboardEmphasis::RunIdle => idle,
+            crate::app::AgentDashboardEmphasis::Receipt => receipt,
+            crate::app::AgentDashboardEmphasis::Hint => hint,
+            crate::app::AgentDashboardEmphasis::Muted => muted,
+        };
+        let mut row = Row::default();
+        row.push_fitted(&line.text, style, layout.width);
+        row.pad_to(layout.width, base);
+        rows[y] = row;
+    }
+    // Fill any unused panel body rows.
+    for index in view.lines.len()..body_rows {
+        let y = panel_top + 1 + index;
+        if y >= layout.status_y {
+            break;
+        }
+        let mut row = Row::default();
+        row.pad_to(layout.width, base);
+        rows[y] = row;
+    }
 }
 
 fn build_content_with_project_sidebar(
@@ -1761,7 +1857,7 @@ mod tests {
             app.config().line_numbers,
         );
         let expected = prompt_window(app.prompt().unwrap(), layout.width);
-        let (rows, cursor) = build_frame(&mut app, layout, layout, 0);
+        let (rows, cursor) = build_frame(&mut app, layout, layout, 0, 0);
         let footer = row_text(&rows[layout.footer_y]);
 
         assert_eq!(
@@ -1785,7 +1881,7 @@ mod tests {
         assert!(app.edit_transition_cue_active());
 
         let layout = Layout::calculate(80, 12, 1, true);
-        let (rows, cursor) = build_frame(&mut app, layout, layout, 0);
+        let (rows, cursor) = build_frame(&mut app, layout, layout, 0, 0);
         assert!(row_text(&rows[layout.status_y]).contains("EDIT*"));
         assert!(
             rows[layout.content_y].spans.iter().any(|span| {
@@ -1820,7 +1916,7 @@ mod tests {
         );
         app.workspace_mut().active_mut().cursor = layout.content_width;
         app.prepare_viewport(layout);
-        let (rows, cursor) = build_frame(&mut app, layout, layout, 0);
+        let (rows, cursor) = build_frame(&mut app, layout, layout, 0, 0);
 
         assert!(row_text(&rows[layout.content_y]).contains(&"a".repeat(layout.content_width)));
         assert!(row_text(&rows[layout.content_y + 1]).contains('↪'));
@@ -1862,7 +1958,7 @@ mod tests {
             app.config().line_numbers,
         );
         app.prepare_viewport(editor_layout);
-        let (rows, cursor) = build_frame(&mut app, layout, editor_layout, sidebar_width);
+        let (rows, cursor) = build_frame(&mut app, layout, editor_layout, sidebar_width, 0);
         let content = row_text(&rows[layout.content_y]);
 
         assert!(content.contains("PROJECT"));

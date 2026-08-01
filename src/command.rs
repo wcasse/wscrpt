@@ -59,6 +59,7 @@ pub enum ExCommand {
     AgentRun,
     AgentActivity,
     AgentCancel,
+    AgentDashboard,
 }
 
 pub fn parse(input: &str) -> Result<ExCommand, String> {
@@ -209,6 +210,9 @@ pub fn parse(input: &str) -> Result<ExCommand, String> {
         }
         "agent-cancel" | "cancel-agent" | "stop-agent" => {
             no_argument(argument, ExCommand::AgentCancel)
+        }
+        "agent-dashboard" | "dashboard" | "agents-dashboard" | "agent-panel" => {
+            no_argument(argument, ExCommand::AgentDashboard)
         }
         _ => Err(format!("unknown command: {name}")),
     }

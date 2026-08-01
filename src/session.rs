@@ -80,6 +80,9 @@ pub struct LayoutFlags {
     pub workspace_tree_visible: bool,
     pub problems_visible: bool,
     pub soft_wrap: bool,
+    /// Bottom agent dashboard panel (Grok Build–style roster strip).
+    #[serde(default)]
+    pub agent_dashboard_visible: bool,
 }
 
 #[derive(Deserialize)]
@@ -135,6 +138,7 @@ impl From<LegacySessionV1> for Session {
                 workspace_tree_visible,
                 problems_visible,
                 soft_wrap,
+                agent_dashboard_visible: false,
             },
         }
     }
@@ -722,6 +726,7 @@ mod tests {
                 workspace_tree_visible: true,
                 problems_visible: true,
                 soft_wrap: true,
+                agent_dashboard_visible: false,
             },
         }
     }

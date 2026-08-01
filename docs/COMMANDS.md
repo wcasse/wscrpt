@@ -85,6 +85,7 @@ Enter the no-timeout action layer with `Esc` or `Ctrl-K`, then type the listed s
 | `Esc w a` | `workspace.agent-run` | Agent Run |
 | `Esc w A` | `workspace.agent-activity` | Agent Activity |
 | `Esc w x` | `workspace.agent-cancel` | Cancel Agent |
+| `Esc w D` | `workspace.agent-dashboard` | Toggle Agent Dashboard |
 
 ## Code
 

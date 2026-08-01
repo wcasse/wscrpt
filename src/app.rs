@@ -848,6 +848,34 @@ struct AgentUiState {
     job: Option<crate::agent_runtime::AgentJob>,
     port: Option<crate::agent_runtime::AgentEventPort>,
     last_summary: Option<String>,
+    /// Bottom dashboard strip (toggle with Esc w D), inspired by Grok Build.
+    dashboard_visible: bool,
+}
+
+/// One display row in the bottom agent dashboard.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AgentDashboardLine {
+    pub text: String,
+    pub emphasis: AgentDashboardEmphasis,
+}
+
+/// Visual role for a dashboard line (renderer maps to colors).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AgentDashboardEmphasis {
+    Title,
+    RunActive,
+    RunNeedsYou,
+    RunReview,
+    RunIdle,
+    Receipt,
+    Hint,
+    Muted,
+}
+
+/// Bounded view model for the agent dashboard panel.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct AgentDashboardView {
+    pub lines: Vec<AgentDashboardLine>,
 }
 
 impl TaskState {
@@ -980,6 +1008,7 @@ impl App {
                 job: None,
                 port: None,
                 last_summary: None,
+                dashboard_visible: false,
             },
             lsp: LspState {
                 client: None,
@@ -1162,6 +1191,7 @@ impl App {
     pub fn apply_session_layout(&mut self, layout: LayoutFlags) {
         self.ui.soft_wrap = layout.soft_wrap;
         self.project.sidebar_visible = layout.workspace_tree_visible;
+        self.agent.dashboard_visible = layout.agent_dashboard_visible;
     }
 
     pub fn apply_session_recent_files(&mut self, recent_files: Vec<PathBuf>) {
@@ -1657,6 +1687,7 @@ impl App {
             layout: LayoutFlags {
                 soft_wrap: self.ui.soft_wrap,
                 workspace_tree_visible: self.project.sidebar_visible,
+                agent_dashboard_visible: self.agent.dashboard_visible,
                 ..LayoutFlags::default()
             },
         }
@@ -3029,6 +3060,7 @@ impl App {
             Action::AgentRun => self.begin_agent_run_prompt(),
             Action::AgentActivity => self.open_agent_activity(),
             Action::AgentCancel => self.cancel_agent_run(),
+            Action::AgentDashboard => self.toggle_agent_dashboard(),
             Action::GlobalSearch if self.project.status.is_pending() => {
                 self.status("Workspace is still indexing; project search will be available shortly")
             }
@@ -4456,6 +4488,7 @@ impl App {
             ExCommand::AgentRun => self.begin_agent_run_prompt(),
             ExCommand::AgentActivity => self.open_agent_activity(),
             ExCommand::AgentCancel => self.cancel_agent_run(),
+            ExCommand::AgentDashboard => self.toggle_agent_dashboard(),
         }
     }
 
@@ -4849,10 +4882,12 @@ impl App {
             self.handle_transient_mouse(mouse, full_layout);
             return;
         }
-        // The renderer shifts the editor right of the project sidebar and lays
-        // it out at the reduced width; hit-testing must mirror both.
+        // The renderer shifts the editor right of the project sidebar, shortens
+        // the content band for the agent dashboard, and lays out at the reduced
+        // size; hit-testing must mirror that geometry.
         let sidebar_width = project_sidebar_width(self, full_layout);
-        let layout = if sidebar_width > 0 {
+        let agent_panel_height = crate::render::agent_dashboard_height(self, full_layout);
+        let mut layout = if sidebar_width > 0 {
             Layout::calculate(
                 full_layout.width.saturating_sub(sidebar_width) as u16,
                 self.ui.screen_size.1,
@@ -4862,6 +4897,7 @@ impl App {
         } else {
             full_layout
         };
+        layout.content_height = layout.content_height.saturating_sub(agent_panel_height);
         let before = self.active_editor_intent();
         self.ui.keymap.cancel();
         match mouse.kind {
@@ -10231,6 +10267,125 @@ impl App {
         }
     }
 
+    pub fn agent_dashboard_visible(&self) -> bool {
+        self.agent.dashboard_visible
+    }
+
+    fn toggle_agent_dashboard(&mut self) {
+        self.agent.dashboard_visible = !self.agent.dashboard_visible;
+        self.ui.full_redraw = true;
+        if self.agent.dashboard_visible {
+            self.status(
+                "Agent dashboard on — Esc w a dispatch · Esc w A receipt · Esc w x cancel · Esc w D hide",
+            );
+        } else {
+            self.status("Agent dashboard off");
+        }
+    }
+
+    /// Grok Build–inspired bottom roster: state icon, goal, last receipt lines.
+    pub fn agent_dashboard_view(&self, visible_rows: usize) -> AgentDashboardView {
+        let mut lines = Vec::new();
+        if visible_rows == 0 {
+            return AgentDashboardView { lines };
+        }
+
+        let state = self.agent.coordinator.run_state();
+        let active = self.agent.coordinator.is_active();
+        let job_live = self.agent.job.is_some();
+        let (icon, run_emphasis) = match state {
+            crate::agent_contract::AgentRunState::Working if job_live || active => {
+                ("⋅", AgentDashboardEmphasis::RunActive)
+            }
+            crate::agent_contract::AgentRunState::NeedsYou => {
+                ("●", AgentDashboardEmphasis::RunNeedsYou)
+            }
+            crate::agent_contract::AgentRunState::Review => {
+                ("●", AgentDashboardEmphasis::RunReview)
+            }
+            crate::agent_contract::AgentRunState::Brief if active => {
+                ("⋅", AgentDashboardEmphasis::RunActive)
+            }
+            _ => ("○", AgentDashboardEmphasis::RunIdle),
+        };
+
+        let awaiting = matches!(
+            state,
+            crate::agent_contract::AgentRunState::NeedsYou
+                | crate::agent_contract::AgentRunState::Review
+        );
+        let header = if active || job_live {
+            format!(
+                " AGENTS · 1 session · {} · {}",
+                if awaiting { "1 awaiting" } else { "live" },
+                crate::agent_runtime::run_state_label(state)
+            )
+        } else {
+            " AGENTS · idle · Esc w a dispatch ".to_owned()
+        };
+        lines.push(AgentDashboardLine {
+            text: header,
+            emphasis: AgentDashboardEmphasis::Title,
+        });
+
+        if lines.len() >= visible_rows {
+            return AgentDashboardView { lines };
+        }
+
+        let session = self.agent.coordinator.active_session_id().unwrap_or("—");
+        let goal = self
+            .agent
+            .coordinator
+            .active_packet()
+            .map(|packet| packet.goal.as_str())
+            .or(self.agent.last_summary.as_deref())
+            .unwrap_or("no active work packet");
+        let goal_short = if goal.chars().count() > 48 {
+            let truncated: String = goal.chars().take(45).collect();
+            format!("{truncated}…")
+        } else {
+            goal.to_owned()
+        };
+        lines.push(AgentDashboardLine {
+            text: format!(" {icon} {session} · {goal_short}"),
+            emphasis: run_emphasis,
+        });
+
+        let receipt = self.agent.coordinator.receipt();
+        let receipt_budget = visible_rows.saturating_sub(lines.len()).saturating_sub(1);
+        if receipt_budget > 0 && !receipt.is_empty() {
+            let start = receipt.len().saturating_sub(receipt_budget);
+            for event in &receipt[start..] {
+                if lines.len() + 1 >= visible_rows {
+                    break;
+                }
+                let mut summary = event.summary.clone();
+                if summary.chars().count() > 56 {
+                    summary = summary.chars().take(53).collect::<String>() + "…";
+                }
+                lines.push(AgentDashboardLine {
+                    text: format!("   [{:>2}] {}", event.sequence, summary),
+                    emphasis: AgentDashboardEmphasis::Receipt,
+                });
+            }
+        } else if lines.len() < visible_rows.saturating_sub(1) {
+            lines.push(AgentDashboardLine {
+                text: "   (no receipt yet)".to_owned(),
+                emphasis: AgentDashboardEmphasis::Muted,
+            });
+        }
+
+        if lines.len() < visible_rows {
+            lines.push(AgentDashboardLine {
+                text: " a run · A full · x cancel · D hide ".to_owned(),
+                emphasis: AgentDashboardEmphasis::Hint,
+            });
+        }
+
+        lines.truncate(visible_rows);
+        AgentDashboardView { lines }
+    }
+
     fn begin_agent_run_prompt(&mut self) {
         if self.agent.job.is_some() && self.agent.coordinator.is_active() {
             self.status("Agent already running — Esc w A for activity, Esc w x to cancel");
@@ -10309,7 +10464,11 @@ impl App {
         self.agent.job = Some(job);
         self.agent.port = Some(port);
         self.agent.last_summary = Some("agent started (fake plan-first loop)".to_owned());
-        self.status("Agent run started — Esc w A for receipt, Esc w x to cancel");
+        if !self.agent.dashboard_visible {
+            self.agent.dashboard_visible = true;
+            self.ui.full_redraw = true;
+        }
+        self.status("Agent run started — dashboard open · Esc w A full receipt · Esc w x cancel");
     }
 
     fn cancel_agent_run(&mut self) {

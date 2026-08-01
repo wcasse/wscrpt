@@ -5,6 +5,7 @@
 ### Added
 
 - Agent run loop (W2 partial): plan-first fake agent with work-packet scope, activity receipt overlay, cancel, and review handoff messaging. `Esc w a` / `:agent` starts a goal, `Esc w A` shows the receipt, `Esc w x` cancels. Default `agent.use_fake = true`; ACP argv is config-ready but not launched yet (Grok Build `grok agent stdio` is the intended follow-on).
+- Toggleable bottom **agent dashboard** strip (Grok Build dashboard–inspired): state icons, live/idle roster line, recent receipt lines, and key hints. `Esc w D` / `:agent-dashboard` toggles; session-persisted; auto-opens when a run starts.
 
 ## [0.2.1] - 2026-08-01
 

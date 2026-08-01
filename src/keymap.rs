@@ -242,6 +242,7 @@ pub enum Action {
     AgentRun,
     AgentActivity,
     AgentCancel,
+    AgentDashboard,
     Completion,
     Definition,
     References,
@@ -357,6 +358,7 @@ impl Action {
         Self::AgentRun,
         Self::AgentActivity,
         Self::AgentCancel,
+        Self::AgentDashboard,
         Self::Completion,
         Self::Definition,
         Self::References,
@@ -1037,6 +1039,14 @@ pub static COMMANDS: &[Command] = &[
         ["agent", "stop", "abort", "cancel"]
     ),
     command!(
+        AgentDashboard,
+        "workspace.agent-dashboard",
+        "Toggle Agent Dashboard",
+        Workspace,
+        prefixed('w', 'D'),
+        ["agent", "dashboard", "panel", "sidebar", "roster", "grok"]
+    ),
+    command!(
         Completion,
         "code.completion",
         "Completion",
@@ -1431,6 +1441,7 @@ fn hint_actions(prefix: PrefixState) -> &'static [Action] {
             Action::AgentRun,
             Action::AgentActivity,
             Action::AgentCancel,
+            Action::AgentDashboard,
         ],
         PrefixState::Code => &[
             Action::Completion,
@@ -1792,6 +1803,7 @@ mod tests {
             (prefixed('w', 'a'), Action::AgentRun),
             (prefixed('w', 'A'), Action::AgentActivity),
             (prefixed('w', 'x'), Action::AgentCancel),
+            (prefixed('w', 'D'), Action::AgentDashboard),
             (prefixed('c', 'c'), Action::Completion),
             (prefixed('c', 'd'), Action::Definition),
             (prefixed('c', 'r'), Action::References),
