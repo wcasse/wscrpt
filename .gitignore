@@ -32,3 +32,8 @@ xcuserdata/
 
 # Local MCP / tooling residue
 unreal_mcp.log
+
+# Private working notes (never publish)
+/BIRDWORLD
+/wscrpt JOB LIST
+/wscrpt JOB LIST corrected

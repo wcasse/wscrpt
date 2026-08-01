@@ -19,18 +19,21 @@ Not blocked on the iPad matrix. Use this while the hardware pass waits.
 
 ## Guaranteed improvements (no iPad required)
 
-| Priority | Item | Why |
-| --- | --- | --- |
-| P0 | GitHub **Release** notes pages for `v0.2.0` and `v0.2.1` (drafts in `docs/releases/`) | Discoverability; install snippet; checksums |
-| P0 | Enable **private vulnerability reporting** in repo settings | Matches SECURITY.md |
-| P0 | `cargo publish --dry-run` then publish when ready | One-line install for strangers |
-| P1 | Demo GIF / short terminal recording | First-impression for README |
-| P1 | Delete or archive local `dist/checkpoints` binaries (210MB) after Release upload | Cleaner clones; already gitignored |
-| P1 | Topics on GitHub: `terminal`, `editor`, `ide`, `ssh`, `mosh`, `ipad`, `rust` | Search |
-| P0 | Decide whether existing commit identities/history are intentionally public; see `docs/PUBLIC_SOURCE_AUDIT.md` | A clean tip does not remove data from reachable history |
-| P2 | Publish a durable private maintainer/contact route without embedding a personal email in package metadata | Security and conduct routing |
-| P2 | First-hour help polish (`Esc ?` copy, README essentials) | Reduce “how do I…” issues |
-| P2 | Optional: man page or extended `--help` examples | Power-user hygiene |
+Live coordination: [`docs/STATUS.md`](STATUS.md). Snapshot audit re-run on 2026-08-01: **pass**.
+
+| Priority | Item | Why | Live status (2026-08-01) |
+| --- | --- | --- | --- |
+| P0 | GitHub **Release** notes pages for `v0.2.0` and `v0.2.1` (drafts in `docs/releases/`) | Discoverability; install snippet; checksums | Drafts exist; **pages not created**. Tag `v0.2.1` missing; only `v0.2.0` on origin. |
+| P0 | Enable **private vulnerability reporting** in repo settings | Matches SECURITY.md | Blocked on working GitHub auth / settings UI |
+| P0 | `cargo publish --dry-run` then publish when ready | One-line install for strangers | Dry-run pending this pass; crates.io not published |
+| P0 | Push local `main` (11 commits ahead of origin) | Public tip is still `905d010`; README already advertises `v0.2.1` | Human push after verify + `gh auth login` |
+| P0 | Decide whether existing commit identities/history are intentionally public; see `docs/PUBLIC_SOURCE_AUDIT.md` | A clean tip does not remove data from reachable history | **Recommend intentional public** (owner identity already on repo); no rewrite |
+| P1 | Demo GIF / short terminal recording | First-impression for README | `docs/demo.tape` present; GIF optional |
+| P1 | Delete or archive local `dist/checkpoints` binaries (210MB) after Release upload | Cleaner clones; already gitignored | Local-only; safe anytime |
+| P1 | Topics on GitHub: `terminal`, `editor`, `ide`, `ssh`, `mosh`, `ipad`, `rust` | Search | Blocked on `gh` token |
+| P2 | Publish a durable private maintainer/contact route without embedding a personal email in package metadata | Security and conduct routing | Package tip sanitized; SECURITY routing present |
+| P2 | First-hour help polish (`Esc ?` copy, README essentials) | Reduce “how do I…” issues | First-run help shipped in 0.2.1 body |
+| P2 | Optional: man page or extended `--help` examples | Power-user hygiene | Deferred |
 
 ## Explicitly defer (not launch blockers)
 
