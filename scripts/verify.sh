@@ -15,6 +15,9 @@ else
     echo "tmux: unavailable"
 fi
 
+echo "==> public source audit"
+"$SCRIPT_DIR/audit-public-source.sh"
+
 echo "==> formatting"
 cargo fmt --all -- --check
 

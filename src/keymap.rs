@@ -634,7 +634,7 @@ pub static COMMANDS: &[Command] = &[
         "core.select-lines",
         "Select Line/Selection",
         Core,
-        direct('L'),
+        direct('l'),
         ["selection", "line", "block", "edit"]
     ),
     command!(
@@ -658,7 +658,7 @@ pub static COMMANDS: &[Command] = &[
         "core.toggle-line-numbers",
         "Toggle Line Numbers",
         Core,
-        direct('l'),
+        direct('L'),
         ["gutter", "line", "display", "ipad", "width"]
     ),
     command!(
@@ -1658,10 +1658,10 @@ mod tests {
             (direct('y'), Action::Yank),
             (direct('x'), Action::Cut),
             (direct('p'), Action::Paste),
-            (direct('L'), Action::SelectLines),
+            (direct('l'), Action::SelectLines),
             (direct('a'), Action::SelectAll),
             (direct('z'), Action::ToggleSoftWrap),
-            (direct('l'), Action::ToggleLineNumbers),
+            (direct('L'), Action::ToggleLineNumbers),
             (Sequence::direct(ActionKey::Left), Action::PreviousWord),
             (Sequence::direct(ActionKey::Right), Action::NextWord),
             (Sequence::direct(ActionKey::Up), Action::PreviousViewport),
@@ -1923,6 +1923,10 @@ mod tests {
         );
         assert_eq!(
             command_by_sequence(direct('l')).unwrap().action,
+            Action::SelectLines
+        );
+        assert_eq!(
+            command_by_sequence(direct('L')).unwrap().action,
             Action::ToggleLineNumbers
         );
     }

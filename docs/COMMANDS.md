@@ -33,10 +33,10 @@ Enter the no-timeout action layer with `Esc` or `Ctrl-K`, then type the listed s
 | `Esc y` | `core.yank` | Yank Selection or Line |
 | `Esc x` | `core.cut` | Cut Selection or Line |
 | `Esc p` | `core.paste` | Paste Register |
-| `Esc L` | `core.select-lines` | Select Line/Selection |
+| `Esc l` | `core.select-lines` | Select Line/Selection |
 | `Esc a` | `core.select-all` | Select All |
 | `Esc z` | `core.toggle-soft-wrap` | Toggle Soft Wrap |
-| `Esc l` | `core.toggle-line-numbers` | Toggle Line Numbers |
+| `Esc L` | `core.toggle-line-numbers` | Toggle Line Numbers |
 | `Esc Left` | `core.previous-word` | Previous Word |
 | `Esc Right` | `core.next-word` | Next Word |
 | `Esc Up` | `core.previous-viewport` | Previous Viewport |

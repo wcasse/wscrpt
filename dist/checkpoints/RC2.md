@@ -1,6 +1,6 @@
 # w.scrpt 0.1.0 RC2 checkpoint
 
-Created on 2026-07-28 from `/path/to/projects/w.scrpt` after the
+Created on 2026-07-28 from `/path/to/wscrpt` after the
 unified task/LSP Problems lane. The workspace was not a Git repository, so
 there is no branch or commit identity for this checkpoint.
 

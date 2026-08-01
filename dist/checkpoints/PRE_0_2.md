@@ -2,13 +2,13 @@
 
 Date: 2026-07-28 PDT
 
-Workspace: `/path/to/projects/w.scrpt`
+Workspace: `/path/to/wscrpt`
 
 Git: this workspace has no `.git` metadata, so branch and commit identities are
 not available. The immutable Cargo source package below is the intake identity.
 All existing RC Markdown, crate, and binary records were left in place.
 
-Host: `GROUDON.local`, `aarch64-apple-darwin`, macOS 26.3.1 (25D771280a).
+Host: `development-host.local`, `aarch64-apple-darwin`, macOS 26.3.1 (25D771280a).
 
 Toolchain: `rustc 1.95.0 (59807616e 2026-04-14)`, Cargo 1.95.0.
 
@@ -53,5 +53,5 @@ Toolchain: `rustc 1.95.0 (59807616e 2026-04-14)`, Cargo 1.95.0.
 ## Proof boundary
 
 No browser route applies to this terminal application. Real iPad + Magic
-Keyboard -> Blink -> mosh -> tmux -> GROUDON acceptance was not exercised and
+Keyboard -> Blink -> mosh -> tmux -> development host acceptance was not exercised and
 remains a human hardware gate.

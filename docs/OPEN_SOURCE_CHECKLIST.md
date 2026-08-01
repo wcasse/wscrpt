@@ -12,6 +12,8 @@ Not blocked on the iPad matrix. Use this while the hardware pass waits.
 - [x] CONTRIBUTING / SECURITY / issue templates
 - [x] Contributor map (`docs/CONTRIBUTOR_MAP.md`)
 - [x] Host verify gate (`scripts/verify.sh`)
+- [x] Current-snapshot privacy/secret/package audit (`scripts/audit-public-source.sh`)
+- [x] Dependency license inventory (`THIRD_PARTY_NOTICES.md`)
 - [x] Agent-friendly iPad prep (`scripts/ipad-matrix-prep.sh`)
 - [x] Release notes draft (`docs/releases/v0.2.0.md`)
 
@@ -25,7 +27,8 @@ Not blocked on the iPad matrix. Use this while the hardware pass waits.
 | P1 | Demo GIF / short terminal recording | First-impression for README |
 | P1 | Delete or archive local `dist/checkpoints` binaries (210MB) after Release upload | Cleaner clones; already gitignored |
 | P1 | Topics on GitHub: `terminal`, `editor`, `ide`, `ssh`, `mosh`, `ipad`, `rust` | Search |
-| P2 | `authors` / contact already in Cargo.toml | crates.io metadata |
+| P0 | Decide whether existing commit identities/history are intentionally public; see `docs/PUBLIC_SOURCE_AUDIT.md` | A clean tip does not remove data from reachable history |
+| P2 | Publish a durable private maintainer/contact route without embedding a personal email in package metadata | Security and conduct routing |
 | P2 | First-hour help polish (`Esc ?` copy, README essentials) | Reduce “how do I…” issues |
 | P2 | Optional: man page or extended `--help` examples | Power-user hygiene |
 
@@ -33,7 +36,7 @@ Not blocked on the iPad matrix. Use this while the hardware pass waits.
 
 - Full iPad matrix (human gate before *wide* confidence, not before “repo is public”)
 - VS Code–parity features (rename/refactor, multi-file replace, Git write UI)
-- Windows host support
+- Native Windows host support beyond the documented WSL route
 - Large `app.rs` modularization (quality-of-life for contributors; do after launch noise)
 
 ## Wide-open definition
@@ -41,3 +44,8 @@ Not blocked on the iPad matrix. Use this while the hardware pass waits.
 **Minimum for “public and findable”:** public repo + green CI + tag + install-from-git docs (done).
 
 **Minimum for “confidently recommend to strangers”:** above + GitHub Release + crates.io + short human Blink pass filed.
+
+Run `scripts/audit-public-source.sh` before each publication. Its default mode
+checks the current tracked snapshot. `scripts/audit-public-source.sh --history`
+also checks reachable history and is intentionally a separate gate because
+history cleanup would require an explicit owner decision and coordinated rewrite.

@@ -1,0 +1,22 @@
+{
+  "name": "@wscrpt/previewd",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Phase 0 loopback signaling sidecar for wscrpt remote previews",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "previewctl": "./bin/previewctl.mjs"
+  },
+  "scripts": {
+    "start": "node ./src/previewd.mjs",
+    "test": "node --test ./test/*.test.mjs",
+    "test:e2e": "node --test --test-force-exit ./test/webrtc.e2e.test.mjs"
+  },
+  "dependencies": {
+    "chrome-remote-interface": "0.34.0",
+    "ws": "8.21.0"
+  }
+}

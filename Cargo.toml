@@ -9,7 +9,6 @@ readme = "README.md"
 repository = "https://github.com/wcasse/wscrpt"
 homepage = "https://github.com/wcasse/wscrpt"
 documentation = "https://github.com/wcasse/wscrpt#readme"
-authors = ["Will Casse <163216174+wcasse@users.noreply.github.com>"]
 keywords = ["editor", "terminal", "ide", "ssh", "ipad"]
 categories = ["command-line-utilities", "development-tools", "text-editors"]
 exclude = [

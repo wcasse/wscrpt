@@ -1,6 +1,6 @@
 # w.scrpt 0.1.0 RC1 checkpoint
 
-Created on 2026-07-28 from `/path/to/projects/w.scrpt` before the
+Created on 2026-07-28 from `/path/to/wscrpt` before the
 next full-IDE feature lane. The workspace was not a Git repository, so there is
 no branch or commit identity for this checkpoint.
 

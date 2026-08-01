@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Changed
+
+- The line-oriented action-layer shortcuts now use `Esc l` to select the current line or expand an existing selection to whole lines, and `Esc L` to toggle line numbers.
+- Host support is explicit: macOS and Linux remain the tested remote-host contract, WSL 2 is the practical Windows route, and native Windows is not claimed without terminal/process-tree CI.
+
 ## [0.2.1] - 2026-07-29
 
 ### Added

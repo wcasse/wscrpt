@@ -55,3 +55,38 @@ Unsaved text belongs only to bounded recovery journals. Saves remain atomic wher
 ## Safety and limits
 
 Filesystem traversal, searches, task output, Git subprocess output, LSP queues/documents/JSON, prompt input, terminal rendering, recent files, bookmarks, and recovery/session files all have explicit ceilings. Partial results remain labeled. Terminal modes are restored on normal exit, error, and panic paths.
+
+## Remote preview Phase 0 boundary
+
+The remote agent-preview spike is deliberately outside the Rust terminal
+runtime. `previewd` is a separate Node process on the remote development host;
+the reference `PreviewSurface` is browser JavaScript that can run in Safari or
+inside the standalone iPad `WKWebView` harness. No preview dependency is linked
+into the `wscrpt` Cargo package, and no video frame enters `App`, Crossterm,
+SSH/mosh terminal bytes, or `session.toml`.
+
+The control and media paths are distinct:
+
+- authenticated SSH commands and a parallel SSH local forward carry bounded
+  lifecycle, discovery, and WebRTC signaling metadata;
+- tmux keeps only the named `previewd` process alive and is never scraped for
+  state;
+- Chrome DevTools Protocol selects and instruments one explicit target and one
+  explicit canvas on a loopback-only debugging endpoint; and
+- browser-native WebRTC carries the video directly from
+  `canvas.captureStream(...)` to a view-only `<video>` element.
+
+Runtime manifests live in a private preview-specific store rather than the
+editor session file. The browser-side provider contract is transport agnostic,
+so a future Unreal Pixel Streaming provider does not require changing surface
+composition.
+
+The Phase 0 harness remains a validation host, not a claim that video is
+embedded in the Blink-hosted TUI. The follow-on native-container decision is now
+implemented as a separate iPad app that combines a NIOSSH/SwiftTerm terminal
+with the same view-only WebRTC surface; it does not link preview code into the
+Rust editor. Connection epochs cross a resource-retirement barrier before a
+replacement SSH transport or preview coordinator may issue one-use tokens, and
+the signaling relay applies writable-peer backpressure in both directions. Its
+architecture and still-open physical-device/remote-host gates are
+recorded in [NATIVE_IPAD_WORKSPACE.md](NATIVE_IPAD_WORKSPACE.md).

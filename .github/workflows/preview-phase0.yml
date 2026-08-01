@@ -1,0 +1,101 @@
+name: preview-phase0
+
+on:
+  push:
+    paths:
+      - "previewd/**"
+      - "clients/ipad-preview-harness/**"
+      - "scripts/verify-preview-phase0.sh"
+      - ".github/workflows/preview-phase0.yml"
+  pull_request:
+    paths:
+      - "previewd/**"
+      - "clients/ipad-preview-harness/**"
+      - "scripts/verify-preview-phase0.sh"
+      - ".github/workflows/preview-phase0.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    name: Node unit and security tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: previewd/package-lock.json
+      - run: npm --prefix previewd ci --ignore-scripts --no-audit --no-fund
+      - run: npm --prefix previewd test
+      - name: Real Chromium WebRTC smoke
+        env:
+          WSCRPT_PREVIEW_CHROME: /usr/bin/google-chrome
+        run: npm --prefix previewd run test:e2e
+
+  ipad-harness:
+    name: Native iPad terminal/player tests
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record Apple toolchain and simulator runtimes
+        run: |
+          xcodebuild -version
+          xcrun swiftc --version
+          xcrun simctl list runtimes
+      - name: Resolve locked Swift packages
+        run: |
+          xcodebuild \
+            -resolvePackageDependencies \
+            -project clients/ipad-preview-harness/PreviewHarness.xcodeproj \
+            -scheme PreviewHarness \
+            -onlyUsePackageVersionsFromResolvedFile \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/PreviewHarnessSourcePackages"
+      - name: Compile for a generic iPad device
+        run: |
+          xcodebuild \
+            -project clients/ipad-preview-harness/PreviewHarness.xcodeproj \
+            -scheme PreviewHarness \
+            -configuration Debug \
+            -destination 'generic/platform=iOS' \
+            -onlyUsePackageVersionsFromResolvedFile \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/PreviewHarnessSourcePackages" \
+            -disableAutomaticPackageResolution \
+            -derivedDataPath "$RUNNER_TEMP/PreviewHarnessDeviceDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            build-for-testing
+      - name: Compile optimized app for a generic iPad device
+        run: |
+          xcodebuild \
+            -project clients/ipad-preview-harness/PreviewHarness.xcodeproj \
+            -scheme PreviewHarness \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -onlyUsePackageVersionsFromResolvedFile \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/PreviewHarnessSourcePackages" \
+            -disableAutomaticPackageResolution \
+            -derivedDataPath "$RUNNER_TEMP/PreviewHarnessReleaseDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+      - name: Run on an available iPad simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          simulator_id="$({ xcrun simctl list devices available || true; } | awk '/iPad/ && /Shutdown|Booted/ { value = $(NF - 1); gsub(/[()]/, "", value); print value; exit }')"
+          if [[ -z "$simulator_id" ]]; then
+            echo "No available iPad simulator is installed on this runner" >&2
+            exit 1
+          fi
+          xcodebuild \
+            -project clients/ipad-preview-harness/PreviewHarness.xcodeproj \
+            -scheme PreviewHarness \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$simulator_id" \
+            -onlyUsePackageVersionsFromResolvedFile \
+            -clonedSourcePackagesDirPath "$RUNNER_TEMP/PreviewHarnessSourcePackages" \
+            -disableAutomaticPackageResolution \
+            -derivedDataPath "$RUNNER_TEMP/PreviewHarnessDerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            test

@@ -1,6 +1,6 @@
 # w.scrpt 0.1.0 RC8 checkpoint
 
-Created on 2026-07-28 from `/path/to/projects/w.scrpt` after
+Created on 2026-07-28 from `/path/to/wscrpt` after
 broadening task-output Problems into a more useful IDE run/test feedback path.
 The workspace was not a Git repository, so branch and commit identity are
 unavailable. RC8 supersedes RC7 as the current release candidate.

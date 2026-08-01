@@ -1,6 +1,6 @@
 # w.scrpt 0.1.0 RC7 checkpoint
 
-Created on 2026-07-28 from `/path/to/projects/w.scrpt` after the
+Created on 2026-07-28 from `/path/to/wscrpt` after the
 final adversarial closure pass for preview-gated project-wide literal Replace
 in Files. The workspace was not a Git repository, so branch and commit identity
 are unavailable. RC7 supersedes RC6 as the release candidate because two final

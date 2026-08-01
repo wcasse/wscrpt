@@ -12,7 +12,7 @@ Version **0.2** is a deliberate core: editing, workspace navigation/search, trus
 
 ## Who this is for
 
-- You code on a **real** Linux/mac host and connect from an iPad (or any thin client) over Blink / SSH / mosh / tmux.
+- You code on a **real** Linux or macOS host and connect from an iPad (or any thin client) over Blink / SSH / mosh / tmux.
 - You want workspace tools (Quick Open, search, tasks, LSP assist, Git *inspect*) without GUI remote desktop.
 - You care about **reliable Escape**, reconnect survival, recovery journals, and clean terminal restore.
 
@@ -20,7 +20,7 @@ Version **0.2** is a deliberate core: editing, workspace navigation/search, trus
 
 - Local GUI IDE workflows (use VS Code, Zed, etc.).
 - Full LSP refactor suites, multi-file automated rewrites, or in-editor Git commit/push UIs (0.2 keeps those in the shell or trusted tasks on purpose).
-- Windows-first development hosts (Unix remote hosts are the supported path).
+- Native Windows development hosts. Windows users can run the supported Linux host path in WSL 2; see [host support](docs/HOST_SUPPORT.md).
 
 ## Why not vim / VS Code remote / nano?
 
@@ -34,7 +34,10 @@ Version **0.2** is a deliberate core: editing, workspace navigation/search, trus
 
 ## Install
 
-Rust **1.88** or newer. Unix-like host (macOS/Linux).
+Rust **1.88** or newer. Supported host: macOS or Linux. WSL 2 is the
+low-cost Windows route because it provides the same Linux/OpenSSH/tmux
+environment; native Windows remains unvalidated. See
+[host support](docs/HOST_SUPPORT.md).
 
 **From GitHub (recommended until crates.io):**
 
@@ -163,6 +166,7 @@ Save as `~/.config/wscrpt/config.toml`. Language servers are never enabled by me
   Host prep (agent-friendly): `scripts/ipad-matrix-prep.sh` → short `HUMAN_PASS.md`.
 
 Architecture and packaging rules: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/RELEASING.md](docs/RELEASING.md).  
+Host matrix and Windows boundary: [docs/HOST_SUPPORT.md](docs/HOST_SUPPORT.md).
 Contributing / security: [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md).
 
 ## License

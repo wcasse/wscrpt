@@ -1,0 +1,629 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10000000000000000000001 /* PreviewHarnessApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* PreviewHarnessApp.swift */; };
+		A10000000000000000000002 /* PreviewLaunchConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* PreviewLaunchConfiguration.swift */; };
+		A10000000000000000000003 /* PreviewSessionDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* PreviewSessionDescriptor.swift */; };
+		A10000000000000000000004 /* PreviewSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* PreviewSurface.swift */; };
+		A10000000000000000000005 /* WKWebRTCPreviewSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* WKWebRTCPreviewSurface.swift */; };
+		A10000000000000000000006 /* PreviewDescriptorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* PreviewDescriptorTests.swift */; };
+		A10000000000000000000007 /* PreviewSurfaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008 /* PreviewSurfaceTests.swift */; };
+		A10000000000000000000015 /* HostKeyTrustTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000018 /* HostKeyTrustTests.swift */; };
+		A10000000000000000000016 /* PreviewCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000019 /* PreviewCoordinatorTests.swift */; };
+		B10000000000000000000001 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = B20000000000000000000001 /* SwiftTerm */; };
+		B10000000000000000000002 /* NIOSSH in Frameworks */ = {isa = PBXBuildFile; productRef = B20000000000000000000002 /* NIOSSH */; };
+		B10000000000000000000003 /* NIOCore in Frameworks */ = {isa = PBXBuildFile; productRef = B20000000000000000000003 /* NIOCore */; };
+		B10000000000000000000004 /* NIOPosix in Frameworks */ = {isa = PBXBuildFile; productRef = B20000000000000000000004 /* NIOPosix */; };
+		B10000000000000000000005 /* Crypto in Frameworks */ = {isa = PBXBuildFile; productRef = B20000000000000000000005 /* Crypto */; };
+		C10000000000000000000001 /* CombinedWorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000001 /* CombinedWorkspaceView.swift */; };
+		C10000000000000000000002 /* HostKeyTrust.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000002 /* HostKeyTrust.swift */; };
+		C10000000000000000000003 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000003 /* KeychainStore.swift */; };
+		C10000000000000000000004 /* PreviewCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000004 /* PreviewCoordinator.swift */; };
+		C10000000000000000000005 /* RemotePreviewControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000005 /* RemotePreviewControl.swift */; };
+		C10000000000000000000006 /* RemoteProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000006 /* RemoteProfile.swift */; };
+		C10000000000000000000007 /* RemoteProfileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000007 /* RemoteProfileStore.swift */; };
+		C10000000000000000000008 /* SSHLocalForward.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000008 /* SSHLocalForward.swift */; };
+		C10000000000000000000009 /* SSHTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000000000000000000009 /* SSHTransport.swift */; };
+		C1000000000000000000000A /* TerminalSurface.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000000000000000000000A /* TerminalSurface.swift */; };
+		C1000000000000000000000B /* WorkspaceSessionModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000000000000000000000B /* WorkspaceSessionModel.swift */; };
+		C1000000000000000000000C /* CombinedWorkspaceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000000000000000000000C /* CombinedWorkspaceTests.swift */; };
+		C1000000000000000000000D /* RemotePreviewControlTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2000000000000000000000D /* RemotePreviewControlTests.swift */; };
+		D10000000000000000000001 /* PhysicalKeyboardMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000001 /* PhysicalKeyboardMonitor.swift */; };
+		B10000000000000000000006 /* NIOCore in Frameworks */ = {isa = PBXBuildFile; productRef = B20000000000000000000003 /* NIOCore */; };
+		B10000000000000000000007 /* NIOSSH in Frameworks */ = {isa = PBXBuildFile; productRef = B20000000000000000000002 /* NIOSSH */; };
+		B10000000000000000000008 /* Crypto in Frameworks */ = {isa = PBXBuildFile; productRef = B20000000000000000000005 /* Crypto */; };
+		B10000000000000000000009 /* NIOPosix in Frameworks */ = {isa = PBXBuildFile; productRef = B20000000000000000000004 /* NIOPosix */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A30000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A90000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A70000000000000000000001;
+			remoteInfo = PreviewHarness;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		A20000000000000000000001 /* PreviewHarnessApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewHarnessApp.swift; sourceTree = "<group>"; };
+		A20000000000000000000002 /* PreviewLaunchConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewLaunchConfiguration.swift; sourceTree = "<group>"; };
+		A20000000000000000000003 /* PreviewSessionDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewSessionDescriptor.swift; sourceTree = "<group>"; };
+		A20000000000000000000004 /* PreviewSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewSurface.swift; sourceTree = "<group>"; };
+		A20000000000000000000005 /* WKWebRTCPreviewSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WKWebRTCPreviewSurface.swift; sourceTree = "<group>"; };
+		A20000000000000000000006 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A20000000000000000000007 /* PreviewDescriptorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewDescriptorTests.swift; sourceTree = "<group>"; };
+		A20000000000000000000008 /* PreviewSurfaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewSurfaceTests.swift; sourceTree = "<group>"; };
+		A20000000000000000000009 /* PreviewHarness.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PreviewHarness.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A2000000000000000000000A /* PreviewHarnessTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PreviewHarnessTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		C20000000000000000000001 /* CombinedWorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CombinedWorkspaceView.swift; sourceTree = "<group>"; };
+		C20000000000000000000002 /* HostKeyTrust.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostKeyTrust.swift; sourceTree = "<group>"; };
+		C20000000000000000000003 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
+		C20000000000000000000004 /* PreviewCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewCoordinator.swift; sourceTree = "<group>"; };
+		C20000000000000000000005 /* RemotePreviewControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemotePreviewControl.swift; sourceTree = "<group>"; };
+		C20000000000000000000006 /* RemoteProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteProfile.swift; sourceTree = "<group>"; };
+		C20000000000000000000007 /* RemoteProfileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteProfileStore.swift; sourceTree = "<group>"; };
+		C20000000000000000000008 /* SSHLocalForward.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHLocalForward.swift; sourceTree = "<group>"; };
+		C20000000000000000000009 /* SSHTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHTransport.swift; sourceTree = "<group>"; };
+		C2000000000000000000000A /* TerminalSurface.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalSurface.swift; sourceTree = "<group>"; };
+		C2000000000000000000000B /* WorkspaceSessionModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSessionModel.swift; sourceTree = "<group>"; };
+		C2000000000000000000000C /* CombinedWorkspaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CombinedWorkspaceTests.swift; sourceTree = "<group>"; };
+		C2000000000000000000000D /* RemotePreviewControlTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemotePreviewControlTests.swift; sourceTree = "<group>"; };
+		D20000000000000000000001 /* PhysicalKeyboardMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhysicalKeyboardMonitor.swift; sourceTree = "<group>"; };
+		A20000000000000000000018 /* HostKeyTrustTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostKeyTrustTests.swift; sourceTree = "<group>"; };
+		A20000000000000000000019 /* PreviewCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewCoordinatorTests.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A40000000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B10000000000000000000005 /* Crypto in Frameworks */,
+				B10000000000000000000004 /* NIOPosix in Frameworks */,
+				B10000000000000000000003 /* NIOCore in Frameworks */,
+				B10000000000000000000002 /* NIOSSH in Frameworks */,
+				B10000000000000000000001 /* SwiftTerm in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A40000000000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B10000000000000000000008 /* Crypto in Frameworks */,
+				B10000000000000000000009 /* NIOPosix in Frameworks */,
+				B10000000000000000000007 /* NIOSSH in Frameworks */,
+				B10000000000000000000006 /* NIOCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A50000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				A50000000000000000000002 /* PreviewHarness */,
+				A50000000000000000000003 /* PreviewHarnessTests */,
+				A50000000000000000000004 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A50000000000000000000002 /* PreviewHarness */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000001 /* PreviewHarnessApp.swift */,
+				C20000000000000000000001 /* CombinedWorkspaceView.swift */,
+				D20000000000000000000001 /* PhysicalKeyboardMonitor.swift */,
+				C20000000000000000000002 /* HostKeyTrust.swift */,
+				C20000000000000000000003 /* KeychainStore.swift */,
+				C20000000000000000000004 /* PreviewCoordinator.swift */,
+				A20000000000000000000002 /* PreviewLaunchConfiguration.swift */,
+				A20000000000000000000003 /* PreviewSessionDescriptor.swift */,
+				A20000000000000000000004 /* PreviewSurface.swift */,
+				C20000000000000000000005 /* RemotePreviewControl.swift */,
+				C20000000000000000000006 /* RemoteProfile.swift */,
+				C20000000000000000000007 /* RemoteProfileStore.swift */,
+				C20000000000000000000008 /* SSHLocalForward.swift */,
+				C20000000000000000000009 /* SSHTransport.swift */,
+				C2000000000000000000000A /* TerminalSurface.swift */,
+				A20000000000000000000005 /* WKWebRTCPreviewSurface.swift */,
+				C2000000000000000000000B /* WorkspaceSessionModel.swift */,
+				A20000000000000000000006 /* Info.plist */,
+			);
+			path = PreviewHarness;
+			sourceTree = "<group>";
+		};
+		A50000000000000000000003 /* PreviewHarnessTests */ = {
+			isa = PBXGroup;
+			children = (
+				C2000000000000000000000C /* CombinedWorkspaceTests.swift */,
+				A20000000000000000000007 /* PreviewDescriptorTests.swift */,
+				A20000000000000000000008 /* PreviewSurfaceTests.swift */,
+				C2000000000000000000000D /* RemotePreviewControlTests.swift */,
+				A20000000000000000000018 /* HostKeyTrustTests.swift */,
+				A20000000000000000000019 /* PreviewCoordinatorTests.swift */,
+			);
+			path = PreviewHarnessTests;
+			sourceTree = "<group>";
+		};
+		A50000000000000000000004 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000009 /* PreviewHarness.app */,
+				A2000000000000000000000A /* PreviewHarnessTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A70000000000000000000001 /* PreviewHarness */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AB0000000000000000000001 /* Build configuration list for PBXNativeTarget "PreviewHarness" */;
+			buildPhases = (
+				A60000000000000000000001 /* Sources */,
+				A40000000000000000000001 /* Frameworks */,
+				A80000000000000000000001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PreviewHarness;
+			packageProductDependencies = (
+				B20000000000000000000001 /* SwiftTerm */,
+				B20000000000000000000002 /* NIOSSH */,
+				B20000000000000000000003 /* NIOCore */,
+				B20000000000000000000004 /* NIOPosix */,
+				B20000000000000000000005 /* Crypto */,
+			);
+			productName = PreviewHarness;
+			productReference = A20000000000000000000009 /* PreviewHarness.app */;
+			productType = "com.apple.product-type.application";
+		};
+		A70000000000000000000002 /* PreviewHarnessTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AB0000000000000000000002 /* Build configuration list for PBXNativeTarget "PreviewHarnessTests" */;
+			buildPhases = (
+				A60000000000000000000002 /* Sources */,
+				A40000000000000000000002 /* Frameworks */,
+				A80000000000000000000002 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				AA0000000000000000000001 /* PBXTargetDependency */,
+			);
+			name = PreviewHarnessTests;
+			packageProductDependencies = (
+				B20000000000000000000002 /* NIOSSH */,
+				B20000000000000000000003 /* NIOCore */,
+				B20000000000000000000004 /* NIOPosix */,
+				B20000000000000000000005 /* Crypto */,
+			);
+			productName = PreviewHarnessTests;
+			productReference = A2000000000000000000000A /* PreviewHarnessTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A90000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2660;
+				LastUpgradeCheck = 2660;
+				TargetAttributes = {
+					A70000000000000000000001 = {
+						CreatedOnToolsVersion = 26.6;
+					};
+					A70000000000000000000002 = {
+						CreatedOnToolsVersion = 26.6;
+						TestTargetID = A70000000000000000000001;
+					};
+				};
+			};
+			buildConfigurationList = AB0000000000000000000003 /* Build configuration list for PBXProject "PreviewHarness" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A50000000000000000000001;
+			packageReferences = (
+				B30000000000000000000001 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
+				B30000000000000000000002 /* XCRemoteSwiftPackageReference "swift-nio-ssh" */,
+				B30000000000000000000003 /* XCRemoteSwiftPackageReference "swift-nio" */,
+				B30000000000000000000004 /* XCRemoteSwiftPackageReference "swift-crypto" */,
+			);
+			productRefGroup = A50000000000000000000004 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A70000000000000000000001 /* PreviewHarness */,
+				A70000000000000000000002 /* PreviewHarnessTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A80000000000000000000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A80000000000000000000002 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A60000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000001 /* PreviewHarnessApp.swift in Sources */,
+				C10000000000000000000001 /* CombinedWorkspaceView.swift in Sources */,
+				D10000000000000000000001 /* PhysicalKeyboardMonitor.swift in Sources */,
+				C10000000000000000000002 /* HostKeyTrust.swift in Sources */,
+				C10000000000000000000003 /* KeychainStore.swift in Sources */,
+				C10000000000000000000004 /* PreviewCoordinator.swift in Sources */,
+				A10000000000000000000002 /* PreviewLaunchConfiguration.swift in Sources */,
+				A10000000000000000000003 /* PreviewSessionDescriptor.swift in Sources */,
+				A10000000000000000000004 /* PreviewSurface.swift in Sources */,
+				C10000000000000000000005 /* RemotePreviewControl.swift in Sources */,
+				C10000000000000000000006 /* RemoteProfile.swift in Sources */,
+				C10000000000000000000007 /* RemoteProfileStore.swift in Sources */,
+				C10000000000000000000008 /* SSHLocalForward.swift in Sources */,
+				C10000000000000000000009 /* SSHTransport.swift in Sources */,
+				C1000000000000000000000A /* TerminalSurface.swift in Sources */,
+				A10000000000000000000005 /* WKWebRTCPreviewSurface.swift in Sources */,
+				C1000000000000000000000B /* WorkspaceSessionModel.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A60000000000000000000002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C1000000000000000000000C /* CombinedWorkspaceTests.swift in Sources */,
+				A10000000000000000000006 /* PreviewDescriptorTests.swift in Sources */,
+				A10000000000000000000007 /* PreviewSurfaceTests.swift in Sources */,
+				C1000000000000000000000D /* RemotePreviewControlTests.swift in Sources */,
+				A10000000000000000000015 /* HostKeyTrustTests.swift in Sources */,
+				A10000000000000000000016 /* PreviewCoordinatorTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		AA0000000000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A70000000000000000000001 /* PreviewHarness */;
+			targetProxy = A30000000000000000000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		AC0000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		AC0000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		AC0000000000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = PreviewHarness/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.wscrpt.PreviewHarness;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 2;
+			};
+			name = Debug;
+		};
+		AC0000000000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = PreviewHarness/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.wscrpt.PreviewHarness;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 2;
+			};
+			name = Release;
+		};
+		AC0000000000000000000005 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.wscrpt.PreviewHarnessTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 2;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PreviewHarness.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PreviewHarness";
+			};
+			name = Debug;
+		};
+		AC0000000000000000000006 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.wscrpt.PreviewHarnessTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 2;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PreviewHarness.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PreviewHarness";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		AB0000000000000000000001 /* Build configuration list for PBXNativeTarget "PreviewHarness" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AC0000000000000000000003 /* Debug */,
+				AC0000000000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AB0000000000000000000002 /* Build configuration list for PBXNativeTarget "PreviewHarnessTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AC0000000000000000000005 /* Debug */,
+				AC0000000000000000000006 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AB0000000000000000000003 /* Build configuration list for PBXProject "PreviewHarness" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AC0000000000000000000001 /* Debug */,
+				AC0000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		B30000000000000000000001 /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm.git";
+			requirement = {
+				kind = exactVersion;
+				version = 1.15.0;
+			};
+		};
+		B30000000000000000000002 /* XCRemoteSwiftPackageReference "swift-nio-ssh" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-nio-ssh.git";
+			requirement = {
+				kind = exactVersion;
+				version = 0.15.0;
+			};
+		};
+		B30000000000000000000003 /* XCRemoteSwiftPackageReference "swift-nio" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-nio.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.101.3;
+			};
+		};
+		B30000000000000000000004 /* XCRemoteSwiftPackageReference "swift-crypto" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/apple/swift-crypto.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 4.5.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		B20000000000000000000001 /* SwiftTerm */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B30000000000000000000001 /* XCRemoteSwiftPackageReference "SwiftTerm" */;
+			productName = SwiftTerm;
+		};
+		B20000000000000000000002 /* NIOSSH */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B30000000000000000000002 /* XCRemoteSwiftPackageReference "swift-nio-ssh" */;
+			productName = NIOSSH;
+		};
+		B20000000000000000000003 /* NIOCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B30000000000000000000003 /* XCRemoteSwiftPackageReference "swift-nio" */;
+			productName = NIOCore;
+		};
+		B20000000000000000000004 /* NIOPosix */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B30000000000000000000003 /* XCRemoteSwiftPackageReference "swift-nio" */;
+			productName = NIOPosix;
+		};
+		B20000000000000000000005 /* Crypto */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B30000000000000000000004 /* XCRemoteSwiftPackageReference "swift-crypto" */;
+			productName = Crypto;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = A90000000000000000000001 /* Project object */;
+}

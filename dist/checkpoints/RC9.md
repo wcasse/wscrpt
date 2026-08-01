@@ -1,6 +1,6 @@
 # w.scrpt 0.1.0 RC9 checkpoint
 
-Created on 2026-07-28 from `/path/to/projects/w.scrpt` after
+Created on 2026-07-28 from `/path/to/wscrpt` after
 adding a terminal input diagnostics route for real iPad/Blink validation. The
 workspace was not a Git repository, so branch and commit identity are
 unavailable. RC9 supersedes RC8 as the current release candidate.
