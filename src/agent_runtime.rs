@@ -16,7 +16,8 @@ use std::time::Duration;
 
 use crate::agent::{AgentCoordinator, FakeAgent};
 use crate::agent_contract::{
-    AgentAuthority, AgentEvent, AgentRunState, PathScope, WorkPacket, WorktreeBinding, unix_now_ms,
+    AgentAuthority, AgentEvent, AgentRunState, MAX_STICKY_BRIEF_BYTES, PathScope, WorkPacket,
+    WorktreeBinding, unix_now_ms,
 };
 
 const EVENT_CAPACITY: usize = 64;
@@ -134,11 +135,29 @@ fn run_fake(
     });
 }
 
+/// Optional sticky notepad content attached as agent brief (user-visible notes).
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct StickyAttach {
+    pub id: String,
+    pub title: String,
+    pub body: String,
+}
+
 /// Build a review-oriented work packet for the active workspace goal.
 pub fn work_packet_for_goal(
     workspace_id: u64,
     workspace_root: impl Into<std::path::PathBuf>,
     goal: impl Into<String>,
+) -> Result<WorkPacket, String> {
+    work_packet_for_goal_with_sticky(workspace_id, workspace_root, goal, None)
+}
+
+/// Same as [`work_packet_for_goal`], optionally attaching one open sticky as brief.
+pub fn work_packet_for_goal_with_sticky(
+    workspace_id: u64,
+    workspace_root: impl Into<std::path::PathBuf>,
+    goal: impl Into<String>,
+    sticky: Option<StickyAttach>,
 ) -> Result<WorkPacket, String> {
     let goal = goal.into();
     let goal_trimmed = goal.trim();
@@ -146,6 +165,13 @@ pub fn work_packet_for_goal(
         return Err("agent goal must not be empty".to_owned());
     }
     let root = workspace_root.into();
+    let (sticky_ids, sticky_brief) = match sticky {
+        Some(attach) => {
+            let brief = format_sticky_brief(&attach);
+            (vec![attach.id], Some(brief))
+        }
+        None => (Vec::new(), None),
+    };
     let packet = WorkPacket {
         id: format!("pkt-{}", short_id()),
         workspace_id,
@@ -166,9 +192,25 @@ pub fn work_packet_for_goal(
         authority: AgentAuthority::review_oriented(),
         creator: "local-user".to_owned(),
         created_at_unix_ms: unix_now_ms(),
+        sticky_ids,
+        sticky_brief,
     };
     packet.validate().map_err(|error| error.to_string())?;
     Ok(packet)
+}
+
+/// Bounded human-readable sticky snapshot for the packet (and fake agent notice).
+pub fn format_sticky_brief(attach: &StickyAttach) -> String {
+    let mut brief = format!("# {}\n\n{}", attach.title.trim(), attach.body.trim());
+    if brief.len() > MAX_STICKY_BRIEF_BYTES {
+        brief.truncate(MAX_STICKY_BRIEF_BYTES);
+        // Avoid splitting mid-char.
+        while !brief.is_char_boundary(brief.len()) {
+            brief.pop();
+        }
+        brief.push('…');
+    }
+    brief
 }
 
 /// Session id for a new run.
@@ -233,6 +275,20 @@ pub fn format_receipt_lines(coordinator: &AgentCoordinator, limit: usize) -> Vec
     }
     if let Some(packet) = coordinator.active_packet() {
         lines.push(format!("goal: {}", packet.goal));
+        if !packet.sticky_ids.is_empty() {
+            lines.push(format!("sticky: {}", packet.sticky_ids.join(", ")));
+        }
+        if let Some(brief) = &packet.sticky_brief {
+            let one_line = brief.lines().next().unwrap_or("").trim();
+            if !one_line.is_empty() {
+                let mut line = format!("brief: {one_line}");
+                if line.len() > 72 {
+                    line.truncate(69);
+                    line.push('…');
+                }
+                lines.push(line);
+            }
+        }
         lines.push(format!(
             "authority: edit={} command={} network={} commit={}",
             packet.authority.edit,
@@ -301,6 +357,30 @@ mod tests {
         drop(job);
         assert_eq!(coordinator.run_state(), AgentRunState::Review);
         assert_eq!(coordinator.receipt().len(), 5);
+    }
+
+    #[test]
+    fn sticky_attach_is_validated_on_packet() {
+        let attach = StickyAttach {
+            id: "s-demo-1".to_owned(),
+            title: "Ship pad".to_owned(),
+            body: "- [ ] wire packet\n- [ ] demo\n".to_owned(),
+        };
+        let packet = work_packet_for_goal_with_sticky(
+            1,
+            "/tmp/wscrpt-demo",
+            "finish stickies",
+            Some(attach),
+        )
+        .unwrap();
+        assert_eq!(packet.sticky_ids, vec!["s-demo-1".to_owned()]);
+        assert!(
+            packet
+                .sticky_brief
+                .as_ref()
+                .is_some_and(|b| b.contains("Ship pad") && b.contains("wire packet"))
+        );
+        packet.validate().unwrap();
     }
 
     #[test]

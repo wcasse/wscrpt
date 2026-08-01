@@ -44,6 +44,10 @@ pub const MAX_COMMENT_BODY_BYTES: usize = 8 * 1024;
 pub const MAX_REVIEW_PATHS: usize = 1_024;
 /// Maximum artifact refs on one review packet.
 pub const MAX_REVIEW_ARTIFACTS: usize = 64;
+/// Maximum sticky ids attached to one work packet.
+pub const MAX_STICKIES_PER_PACKET: usize = 8;
+/// Maximum UTF-8 bytes for a sticky body snapshot included as agent brief.
+pub const MAX_STICKY_BRIEF_BYTES: usize = 4 * 1024;
 
 /// Five-state activity model for one agent run.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -166,6 +170,10 @@ pub struct WorkPacket {
     pub authority: AgentAuthority,
     pub creator: String,
     pub created_at_unix_ms: u64,
+    /// Sticky note ids explicitly included as agent context (user-attached only).
+    pub sticky_ids: Vec<String>,
+    /// Bounded snapshot of sticky body text for the agent brief (not a live link).
+    pub sticky_brief: Option<String>,
 }
 
 impl WorkPacket {
@@ -222,6 +230,18 @@ impl WorkPacket {
         // Push is recorded for later phases but must not be enabled in v1 packets.
         if self.authority.push {
             return Err(ContractError::AuthorityNotGranted("push"));
+        }
+        if self.sticky_ids.len() > MAX_STICKIES_PER_PACKET {
+            return Err(ContractError::TooMany {
+                field: "sticky_ids",
+                limit: MAX_STICKIES_PER_PACKET,
+            });
+        }
+        for id in &self.sticky_ids {
+            validate_id(id, "sticky_id")?;
+        }
+        if let Some(brief) = &self.sticky_brief {
+            validate_text_len(brief, MAX_STICKY_BRIEF_BYTES, "sticky_brief")?;
         }
         Ok(())
     }
@@ -662,6 +682,8 @@ pub fn sample_work_packet(workspace_id: u64) -> WorkPacket {
         authority: AgentAuthority::review_oriented(),
         creator: "local-user".to_owned(),
         created_at_unix_ms: 1_700_000_000_000,
+        sticky_ids: Vec::new(),
+        sticky_brief: None,
     }
 }
 

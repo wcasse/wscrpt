@@ -10564,12 +10564,18 @@ impl App {
         }
         self.begin_prompt(PromptFlow::AgentGoal);
         if let UiMode::Prompt(prompt) = &mut self.ui.mode {
+            let sticky_hint = if self.sticky_pad.visible && self.sticky_pad.note.is_some() {
+                " · sticky pad attaches as brief"
+            } else {
+                " · Esc w k open sticky to attach brief"
+            };
             prompt.notice = Some(if self.config.agent.use_fake {
-                "Enter starts a plan-first fake agent run · Esc cancels · progress on bottom Agents dashboard (Esc w D)"
-                    .to_owned()
+                format!(
+                    "Enter starts plan-first fake run{sticky_hint} · Esc cancels · Esc w D dashboard"
+                )
             } else {
                 format!(
-                    "profile={} · auth looks ready · Enter still runs fake until ACP process is wired · Esc cancels",
+                    "profile={} · auth ready · fake until ACP wired{sticky_hint}",
                     self.config.agent.profile
                 )
             });
@@ -10599,12 +10605,22 @@ impl App {
             ));
         }
 
+        // Persist open sticky before snapshotting it into the packet.
+        if self.sticky_pad.visible
+            && let Ok(library) = self.sticky_library()
+        {
+            let _ = self.sticky_pad.save_if_dirty(&library);
+        }
+        let sticky_attach = self.sticky_pad_attach();
+        let sticky_title = sticky_attach.as_ref().map(|s| s.title.clone());
+
         let session = crate::agent_runtime::new_session_id();
         let workspace_id = self.agent.coordinator.workspace_id();
-        let packet = match crate::agent_runtime::work_packet_for_goal(
+        let packet = match crate::agent_runtime::work_packet_for_goal_with_sticky(
             workspace_id,
             self.workspace_root(),
             goal.trim(),
+            sticky_attach,
         ) {
             Ok(packet) => packet,
             Err(error) => {
@@ -10612,6 +10628,7 @@ impl App {
                 return;
             }
         };
+        let attached = !packet.sticky_ids.is_empty();
         let generation = match self
             .agent
             .coordinator
@@ -10623,20 +10640,38 @@ impl App {
                 return;
             }
         };
-        let (job, port) = crate::agent_runtime::spawn_fake_agent(
-            workspace_id,
-            session,
-            generation,
-            crate::agent::FakeAgent::happy_path_edit(),
-        );
+        let fake = crate::agent::FakeAgent::happy_path_edit_with_brief(sticky_title.as_deref());
+        let (job, port) =
+            crate::agent_runtime::spawn_fake_agent(workspace_id, session, generation, fake);
         self.agent.job = Some(job);
         self.agent.port = Some(port);
-        self.agent.last_summary = Some("agent started (fake plan-first loop)".to_owned());
+        self.agent.last_summary = Some(if attached {
+            "agent started with sticky brief".to_owned()
+        } else {
+            "agent started (fake plan-first loop)".to_owned()
+        });
         if !self.agent.dashboard_visible {
             self.agent.dashboard_visible = true;
             self.ui.full_redraw = true;
         }
-        self.status("Agent run started — Agents dashboard open · Esc w x cancel · Esc w D hide");
+        self.status(if attached {
+            "Agent run + sticky brief — Agents dashboard open · Esc w x cancel"
+        } else {
+            "Agent run started — open sticky pad (Esc w k) next time to attach a brief"
+        });
+    }
+
+    /// Snapshot the open sticky pad into a packet attach (if any note is loaded).
+    fn sticky_pad_attach(&self) -> Option<crate::agent_runtime::StickyAttach> {
+        if !self.sticky_pad.visible {
+            return None;
+        }
+        let note = self.sticky_pad.note.as_ref()?;
+        Some(crate::agent_runtime::StickyAttach {
+            id: note.id.clone(),
+            title: note.title.clone(),
+            body: note.body_markdown.clone(),
+        })
     }
 
     fn cancel_agent_run(&mut self) {

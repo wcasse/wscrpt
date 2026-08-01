@@ -155,7 +155,14 @@ Stale anchors remain visible and explicitly stale; they must not silently move
 to unrelated content. An agent receives a Sticky only when the user includes
 it in the work packet.
 
-The TUI should use a full-screen overlay or sidebar stack. The native iPad app
+**Product (S1):** when the floating sticky pad is open and holds a note, starting
+an agent run (`Esc w a`) attaches that sticky's id and a bounded body snapshot
+to the work packet as `sticky_ids` / `sticky_brief`. The fake agent emits a
+`notice` event naming the sticky title so the Agents dashboard receipt shows
+the brief was loaded. Agents never receive stickies unless the user has them
+open (or later explicitly includes them).
+
+The TUI uses a top-right floating pad (not a second buffer). The native iPad app
 may use draggable/resizable SwiftUI cards above the stable terminal/player,
 without rebuilding or reparenting either UIKit surface.
 

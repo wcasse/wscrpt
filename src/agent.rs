@@ -448,15 +448,26 @@ impl FakeAgent {
 
     /// A useful happy-path script: plan → edit in scope → check → review.
     pub fn happy_path_edit() -> Self {
-        Self {
-            steps: vec![
-                FakeStep::state(AgentRunState::Working, "starting"),
-                FakeStep::plan("1. touch src/lib.rs\n2. run cargo test"),
-                FakeStep::path_touched("src/lib.rs", "added module export"),
-                FakeStep::check(true, "cargo test --locked"),
-                FakeStep::review_ready("ready for human review"),
-            ],
+        Self::happy_path_edit_with_brief(None)
+    }
+
+    /// Happy path that optionally opens with a sticky-brief notice (workflow S1).
+    pub fn happy_path_edit_with_brief(sticky_title: Option<&str>) -> Self {
+        let mut steps = Vec::new();
+        steps.push(FakeStep::state(AgentRunState::Working, "starting"));
+        if let Some(title) = sticky_title.filter(|t| !t.trim().is_empty()) {
+            let mut summary = format!("sticky brief: {title}");
+            if summary.len() > 200 {
+                summary.truncate(197);
+                summary.push('…');
+            }
+            steps.push(FakeStep::notice(summary));
         }
+        steps.push(FakeStep::plan("1. touch src/lib.rs\n2. run cargo test"));
+        steps.push(FakeStep::path_touched("src/lib.rs", "added module export"));
+        steps.push(FakeStep::check(true, "cargo test --locked"));
+        steps.push(FakeStep::review_ready("ready for human review"));
+        Self { steps }
     }
 
     pub fn steps(&self) -> &[FakeStep] {
