@@ -57,6 +57,19 @@ Unsaved text belongs only to bounded recovery journals. Saves remain atomic wher
 
 Filesystem traversal, searches, task output, Git subprocess output, LSP queues/documents/JSON, prompt input, terminal rendering, recent files, bookmarks, and recovery/session files all have explicit ceilings. Partial results remain labeled. Terminal modes are restored on normal exit, error, and panic paths.
 
+## Agent-native orchestration (W0 library)
+
+`src/agent_contract.rs` and `src/agent.rs` define the host-side orchestration
+contracts (work packet, bounded events, Stickies, review packets) and a single
+`AgentCoordinator` admission point. Events carry workspace identity, run
+generation, and a monotonic sequence. Path-touch events must fall under the
+packet's writable scopes and outside protected scopes. Cancelling or replacing
+a run advances generation so stale traffic cannot affect the current workspace.
+
+W0 does not launch agents, speak ACP, mutate files, or expose TUI controls.
+Those arrive in later roadmap phases behind the same contracts. See
+[AGENT_NATIVE_ROADMAP.md](AGENT_NATIVE_ROADMAP.md).
+
 ## Remote preview Phase 0 boundary
 
 The remote agent-preview spike is deliberately outside the Rust terminal

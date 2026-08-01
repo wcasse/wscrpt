@@ -33,6 +33,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) (mutation boundaries) and [CHANGELOG.md](
 | **Session restore** | `src/session.rs`; bootstrap in `src/main.rs` / `App` | Session v2: paths + layout metadata, never buffer text. `--no-session` in CLI. |
 | **Crash recovery journals** | `src/recovery.rs`; listing via `services` + `App` | Unsaved text only; atomic journal writes. |
 | **Background services** | `src/services.rs`; admission `App::poll_services` | Project index, Git snapshot/mutation, recovery scans. Stale results dropped by workspace id + generation; Git mutation is distinct and single-flight. |
+| **Agent-native contracts (W0)** | `src/agent_contract.rs`, `src/agent.rs` | Work packets, events, Stickies, review types; `AgentCoordinator` + `FakeAgent`. Not wired into `App`/TUI yet (W2). |
 | **CLI flags / startup / shell handoff** | `src/main.rs` | `Cli` (clap): path, `--project`, `--mouse` / `--no-mouse`, `--no-osc52`, `--print-default-config`, `--print-command-reference`, `--health`, `--input-diagnostics`, `--no-session`. |
 | **Config defaults / language servers** | `src/config.rs`; default text in `src/main.rs`; discovery `src/lsp_discover.rs` | LSP only from user-global config, never workspace files. `format_on_save` lives on `Config`. |
 | **First-run help** | `src/onboarding.rs`; open from `src/main.rs` via `App::maybe_open_first_run_help` | XDG state flag; set `WSCRPT_SKIP_FIRST_RUN_HELP=1` in automation. |

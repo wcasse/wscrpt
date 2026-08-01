@@ -1,3 +1,5 @@
+pub mod agent;
+pub mod agent_contract;
 pub mod app;
 pub mod clipboard;
 pub mod command;

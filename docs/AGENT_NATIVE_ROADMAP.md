@@ -1,6 +1,8 @@
 # Agent-native wscrpt roadmap
 
-Status: researched proposal, not shipped functionality.
+Status: W0 contracts and deterministic fake agent are implemented in
+`src/agent_contract.rs` and `src/agent.rs` (unit-tested admission). W1+ remain
+unshipped product surface.
 
 This roadmap covers three related product ideas:
 
@@ -214,8 +216,8 @@ Keep ownership separate:
 
 ### W0 — contracts and deterministic fake
 
-Define agent, packet, event, review, and Sticky contracts. Build a fake agent
-and adversarial event tests.
+**Done (library only):** Define agent, packet, event, review, and Sticky
+contracts. Build a fake agent and adversarial event tests.
 
 Gate: stale, oversized, invalid-path, replayed, and cancelled events cannot
 affect the current workspace.
