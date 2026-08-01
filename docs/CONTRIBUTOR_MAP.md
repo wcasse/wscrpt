@@ -33,11 +33,12 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) (mutation boundaries) and [CHANGELOG.md](
 | **Session restore** | `src/session.rs`; bootstrap in `src/main.rs` / `App` | Session v2: paths + layout metadata, never buffer text. `--no-session` in CLI. |
 | **Crash recovery journals** | `src/recovery.rs`; listing via `services` + `App` | Unsaved text only; atomic journal writes. |
 | **Background services** | `src/services.rs`; admission `App::poll_services` | Project index, Git snapshot/mutation, recovery scans. Stale results dropped by workspace id + generation; Git mutation is distinct and single-flight. |
-| **Agent-native contracts (W0)** | `src/agent_contract.rs`, `src/agent.rs` | Work packets, events, Stickies, review types; `AgentCoordinator` + `FakeAgent`. Not wired into `App`/TUI yet (W2). |
-| **Stickies (pad UI)** | `src/stickies.rs` (`StickyPad`); paint in `src/render.rs`; keys in `App` | Floating top-right card; Markdown storage; `Esc w k` / `K`. |
-| **Agent run (W2 partial)** | `src/agent_runtime.rs`, `src/agent.rs`; keys in `keymap` / `App` | Fake plan-first loop; `Esc w a` run, `Esc w x` cancel, `Esc w D` dashboard. ACP process not launched yet. |
-| **Agents dashboard UI** | `src/render.rs` (`agent_dashboard_height`, `paint_agent_dashboard`); `App::agent_dashboard_view` | Single bottom strip: roster + full receipt (no separate activity popup). Deep height when live/receipt; compact when idle. |
-| **Agent auth readiness** | `src/agent_auth.rs`; `Config.agent`; `wscrpt --health`; `docs/AGENT_AUTH.md` | Host CLI owns secrets; wscrpt only probes PATH / env names / markers. |
+| **Lane ownership (Agents vs Stickies)** | [LANES.md](LANES.md), [handoffs/AGENTS_LANE.md](handoffs/AGENTS_LANE.md), [handoffs/STICKIES_LANE.md](handoffs/STICKIES_LANE.md) | Dual concurrent threads: exclusive modules + shared-file edit protocol. Agents worktree: `../wscrpt-agents` (`agents/w2-lane`). |
+| **Agent-native contracts (W0)** | `src/agent_contract.rs`, `src/agent.rs` | Work packets, events, review/Sticky *types*; `AgentCoordinator` + `FakeAgent`. **AGENTS lane.** |
+| **Stickies (pad UI)** | `src/stickies.rs` (`StickyPad`); paint in `src/render.rs`; keys in `App` | Floating top-right card; Markdown storage; `Esc w k` / `K`. **STICKIES lane** — do not edit from Agents lane. |
+| **Agent run (W2 partial)** | `src/agent_runtime.rs`, `src/agent.rs`; keys in `keymap` / `App` | Fake plan-first loop; `Esc w a` run, `Esc w x` cancel, `Esc w D` dashboard. ACP process not launched yet. **AGENTS lane.** |
+| **Agents dashboard UI** | `src/render.rs` (`agent_dashboard_height`, `paint_agent_dashboard`); `App::agent_dashboard_view` | Single bottom strip: roster + full receipt (no activity popup). **AGENTS lane.** |
+| **Agent auth readiness** | `src/agent_auth.rs`; `Config.agent`; `wscrpt --health`; `docs/AGENT_AUTH.md` | Host CLI owns secrets; wscrpt only probes PATH / env names / markers. **AGENTS lane.** |
 | **CLI flags / startup / shell handoff** | `src/main.rs` | `Cli` (clap): path, `--project`, `--mouse` / `--no-mouse`, `--no-osc52`, `--print-default-config`, `--print-command-reference`, `--health`, `--input-diagnostics`, `--no-session`. |
 | **Config defaults / language servers** | `src/config.rs`; default text in `src/main.rs`; discovery `src/lsp_discover.rs` | LSP only from user-global config, never workspace files. `format_on_save` lives on `Config`. |
 | **First-run help** | `src/onboarding.rs`; open from `src/main.rs` via `App::maybe_open_first_run_help` | XDG state flag; set `WSCRPT_SKIP_FIRST_RUN_HELP=1` in automation. |

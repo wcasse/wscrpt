@@ -12,6 +12,8 @@ Thanks for helping. wscrpt is intentionally small: a remote-first terminal edito
 
 **Code map:** [docs/CONTRIBUTOR_MAP.md](docs/CONTRIBUTOR_MAP.md) — where to edit keybindings, save, search, tasks, Git, LSP, render, session, recovery, and CLI without reading all of `src/app.rs`.
 
+**Dual lanes (Agents vs Stickies):** when two agents work concurrently, follow [docs/LANES.md](docs/LANES.md). Do not mix exclusive modules or shared-file regions across lanes.
+
 Rust **1.88+** is required.
 
 ```sh

@@ -2,8 +2,17 @@
 
 **Date:** 2026-08-01  
 **Goal:** open-source ready today  
-**Local/remote tip:** `c26d265` on `main` (privacy-rewritten history)  
-**Tag:** `v0.2.1` → `c26d265`
+**Local/remote tip:** `f7d76fd` on `main` (Agents dashboard leftovers + Stickies pad on tip)  
+**Tag:** `v0.2.1` → `c26d265` (publication tip; `main` has advanced)
+
+## Active product lanes (do not cross)
+
+| Lane | Branch / tree | Owner | Handoff |
+| --- | --- | --- | --- |
+| **AGENTS** | `agents/w2-lane` · worktree `../wscrpt-agents` | Agents Grok thread | [handoffs/AGENTS_LANE.md](handoffs/AGENTS_LANE.md) |
+| **STICKIES** | recommend `stickies/*` · main tree OK | Stickies Grok thread | [handoffs/STICKIES_LANE.md](handoffs/STICKIES_LANE.md) |
+
+Full edit contract: **[LANES.md](LANES.md)**.
 
 ## Shipped
 
@@ -55,4 +64,5 @@ Or paste release notes via GitHub UI if `gh` stays broken.
 
 ## Live log
 
+- **2026-08-01 lanes:** AGENTS vs STICKIES ownership locked in [LANES.md](LANES.md). Agents worktree at `wscrpt-agents` / `agents/w2-lane`. Single Agents dashboard on `main` (`f7d76fd`); no activity popup.
 - **Ship:** force-pushed rewritten `main` to `c26d265`, published tags `v0.2.0` + `v0.2.1`. `gh`/crates.io still need credentials.

@@ -224,8 +224,9 @@ affect the current workspace.
 
 ### W1 — Stickies v1
 
-**Done (host TUI):** Markdown storage, atomic saves, personal/team separation,
-list/filter/archive, and the stickies picker overlay (`Esc w k` / `Esc w K`).
+**Done / evolving (STICKIES lane owns):** Markdown storage, atomic saves,
+personal/team separation, and a floating top-right notepad pad (`Esc w k` /
+`Esc w K`). Further pad UX is Stickies-lane work only — see [LANES.md](LANES.md).
 Native iPad floating cards remain W4.
 
 Gate: formatting round-trips, no committed layout churn, sanitization, and
@@ -233,11 +234,13 @@ recovery from truncated/invalid metadata.
 
 ### W2 — one agent, one packet
 
-**Partial (fake path shipped):** Work-packet start, cancellation, activity
-receipt overlay, and review handoff *messaging* to existing Git surfaces.
+**Partial (AGENTS lane owns):** Work-packet start, cancellation, single bottom
+**Agents dashboard** (roster + full receipt; no separate activity popup), host
+auth readiness probes, and review handoff *messaging* to existing Git surfaces.
 UX deliberately mirrors Grok Build's agentic terminal loop (plan-first receipts,
 Needs You / Review states, Esc-driven controls for iPad SSH). Default runtime is
-the deterministic fake agent (`agent.use_fake = true`).
+the deterministic fake agent (`agent.use_fake = true`). Keys: `Esc w a` / `x` /
+`D` (`Esc w A` unbound). Live log: [handoffs/AGENTS_LANE.md](handoffs/AGENTS_LANE.md).
 
 **Still open for W2 complete:** live ACP client for `grok agent stdio` (or peer),
 permission prompts as Needs You approvals, dirty-tree protection, process/PTY
