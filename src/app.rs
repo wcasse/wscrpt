@@ -853,6 +853,8 @@ struct AgentUiState {
     dashboard_visible: bool,
     /// ACP `session/request_permission` awaiting Y/N (Needs You).
     pending_permission: Option<crate::agent_runtime::PendingPermission>,
+    /// True after auto (or manual) review handoff opened Git for this run.
+    review_handoff_done: bool,
 }
 
 /// One display row in the bottom agent dashboard.
@@ -1014,6 +1016,7 @@ impl App {
                 last_summary: None,
                 dashboard_visible: false,
                 pending_permission: None,
+                review_handoff_done: false,
             },
             sticky_pad: crate::stickies::StickyPad::default(),
             lsp: LspState {
@@ -3117,6 +3120,7 @@ impl App {
             Action::NewSticky => self.create_new_sticky(),
             Action::AgentRun => self.begin_agent_run_prompt(),
             Action::AgentApprove => self.answer_agent_permission(true),
+            Action::AgentReviewHandoff => self.handoff_agent_review(None),
             Action::AgentCancel => self.cancel_agent_run(),
             Action::AgentDashboard => self.toggle_agent_dashboard(),
             Action::GlobalSearch if self.project.status.is_pending() => {
@@ -4539,6 +4543,7 @@ impl App {
             ExCommand::AgentRun => self.begin_agent_run_prompt(),
             ExCommand::AgentCancel => self.cancel_agent_run(),
             ExCommand::AgentDashboard => self.toggle_agent_dashboard(),
+            ExCommand::AgentReview => self.handoff_agent_review(None),
         }
     }
 
@@ -10615,8 +10620,13 @@ impl App {
         }
 
         if lines.len() < visible_rows {
+            let hint = if matches!(state, crate::agent_contract::AgentRunState::Review) {
+                " G review Git · v s status · v D diffs · D hide "
+            } else {
+                " a run · G review · x cancel · D hide "
+            };
             lines.push(AgentDashboardLine {
-                text: " a run · x cancel · D hide ".to_owned(),
+                text: hint.to_owned(),
                 emphasis: AgentDashboardEmphasis::Hint,
             });
         }
@@ -10789,6 +10799,8 @@ impl App {
 
         self.agent.job = Some(job);
         self.agent.port = Some(port);
+        self.agent.pending_permission = None;
+        self.agent.review_handoff_done = false;
         self.agent.last_summary = Some(if use_process {
             "agent started (ACP process)".to_owned()
         } else {
@@ -10813,11 +10825,87 @@ impl App {
         self.agent.job = None;
         self.agent.port = None;
         self.agent.pending_permission = None;
+        self.agent.review_handoff_done = false;
         if cancelled.is_some() {
             self.agent.last_summary = Some("agent cancelled".to_owned());
             self.status("Agent cancelled");
         } else {
             self.status("No active agent run");
+        }
+    }
+
+    /// Paths touched in the active/last agent receipt (workspace-relative).
+    fn agent_touched_paths(&self) -> Vec<PathBuf> {
+        let mut paths = Vec::new();
+        for event in self.agent.coordinator.receipt() {
+            if let Some(path) = &event.path
+                && !paths.iter().any(|existing| existing == path)
+            {
+                paths.push(path.clone());
+            }
+        }
+        paths
+    }
+
+    /// Open existing Git surfaces for agent review (status + first touched diff).
+    ///
+    /// Does not invent a new VCS UI — reuses `open_git_status` / `open_git_diff_for_path`.
+    fn handoff_agent_review(&mut self, summary: Option<&str>) {
+        let summary = summary
+            .map(str::to_owned)
+            .or_else(|| self.agent.last_summary.clone())
+            .unwrap_or_else(|| "agent review".to_owned());
+        let paths = self.agent_touched_paths();
+        let path_hint = if paths.is_empty() {
+            String::new()
+        } else {
+            let listed: Vec<String> = paths
+                .iter()
+                .take(4)
+                .map(|path| path.display().to_string())
+                .collect();
+            let more = if paths.len() > 4 {
+                format!(" +{}", paths.len() - 4)
+            } else {
+                String::new()
+            };
+            format!(" · paths: {}{more}", listed.join(", "))
+        };
+        let single_path = (paths.len() == 1).then(|| self.workspace_root().join(&paths[0]));
+        let multi_paths = paths.len() > 1;
+        let empty_paths = paths.is_empty();
+
+        if !self.agent.dashboard_visible {
+            self.agent.dashboard_visible = true;
+            self.ui.full_redraw = true;
+        }
+
+        let has_repo = self.git.repository.is_some();
+        if has_repo {
+            // Primary review surface: full Git status (read-only virtual buffer).
+            self.open_git_status();
+            // When the receipt names exactly one path, open that file's diff too.
+            if let Some(absolute) = single_path {
+                self.open_git_diff_for_path(absolute);
+            }
+        }
+
+        self.agent.review_handoff_done = true;
+        if has_repo {
+            let extra = if multi_paths {
+                " · Esc v D pick more diffs"
+            } else if empty_paths {
+                " · Esc v D diffs if needed"
+            } else {
+                ""
+            };
+            self.status(format!(
+                "AGENT REVIEW: {summary} — opened Git status{path_hint}{extra} · Esc w G again · Esc w D dashboard"
+            ));
+        } else {
+            self.status(format!(
+                "AGENT REVIEW: {summary} — no Git repo{path_hint} · Esc w D dashboard"
+            ));
         }
     }
 
@@ -10906,9 +10994,13 @@ impl App {
                             if kind == crate::agent_contract::AgentEventKind::ReviewReady
                                 || outcome.run_state == crate::agent_contract::AgentRunState::Review
                             {
-                                self.status(format!(
-                                    "AGENT REVIEW: {summary} — Esc v s status · Esc v D diffs · Esc w D dashboard"
-                                ));
+                                if !self.agent.review_handoff_done {
+                                    self.handoff_agent_review(Some(&summary));
+                                } else {
+                                    self.status(format!(
+                                        "AGENT REVIEW: {summary} — Esc w G handoff · Esc v s · Esc v D · Esc w D"
+                                    ));
+                                }
                             } else {
                                 let label =
                                     crate::agent_runtime::run_state_label(outcome.run_state);
@@ -10946,7 +11038,7 @@ impl App {
                         format!("Agent finished with error: {error}")
                     } else {
                         format!(
-                            "Agent finished — {} — Esc w D dashboard · Esc v s Git",
+                            "Agent finished — {} — Esc w G review · Esc w D dashboard",
                             crate::agent_runtime::run_state_label(
                                 self.agent.coordinator.run_state()
                             )
@@ -10957,10 +11049,21 @@ impl App {
             }
         }
         if finished {
+            let was_review = matches!(
+                self.agent.coordinator.run_state(),
+                crate::agent_contract::AgentRunState::Review
+            );
             self.agent.job = None;
             self.agent.port = None;
             self.agent.pending_permission = None;
-            if let Some(message) = finish_message {
+            if was_review && !self.agent.review_handoff_done {
+                let summary = self
+                    .agent
+                    .last_summary
+                    .clone()
+                    .unwrap_or_else(|| "agent finished".to_owned());
+                self.handoff_agent_review(Some(&summary));
+            } else if let Some(message) = finish_message {
                 self.status(message);
             }
         }

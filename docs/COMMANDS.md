@@ -84,6 +84,7 @@ Enter the no-timeout action layer with `Esc` or `Ctrl-K`, then type the listed s
 | `Esc w K` | `workspace.new-sticky` | New Sticky Pad Note |
 | `Esc w a` | `workspace.agent-run` | Agent Run |
 | `Esc w A` | `workspace.agent-approve` | Approve Agent Permission |
+| `Esc w G` | `workspace.agent-review` | Agent Review Handoff |
 | `Esc w x` | `workspace.agent-cancel` | Cancel Agent |
 | `Esc w D` | `workspace.agent-dashboard` | Toggle Agents Dashboard |
 

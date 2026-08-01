@@ -241,6 +241,7 @@ pub enum Action {
     NewSticky,
     AgentRun,
     AgentApprove,
+    AgentReviewHandoff,
     AgentCancel,
     AgentDashboard,
     Completion,
@@ -357,6 +358,7 @@ impl Action {
         Self::NewSticky,
         Self::AgentRun,
         Self::AgentApprove,
+        Self::AgentReviewHandoff,
         Self::AgentCancel,
         Self::AgentDashboard,
         Self::Completion,
@@ -1031,6 +1033,16 @@ pub static COMMANDS: &[Command] = &[
         ["agent", "allow", "approve", "permission", "needs-you", "y"]
     ),
     command!(
+        AgentReviewHandoff,
+        "workspace.agent-review",
+        "Agent Review Handoff",
+        Workspace,
+        prefixed('w', 'G'),
+        [
+            "agent", "review", "git", "handoff", "diff", "status", "receipt"
+        ]
+    ),
+    command!(
         AgentCancel,
         "workspace.agent-cancel",
         "Cancel Agent",
@@ -1053,8 +1065,7 @@ pub static COMMANDS: &[Command] = &[
             "grok",
             "activity",
             "receipt",
-            "status",
-            "review"
+            "status"
         ]
     ),
     command!(
@@ -1451,6 +1462,7 @@ fn hint_actions(prefix: PrefixState) -> &'static [Action] {
             Action::NewSticky,
             Action::AgentRun,
             Action::AgentApprove,
+            Action::AgentReviewHandoff,
             Action::AgentCancel,
             Action::AgentDashboard,
         ],
@@ -1813,6 +1825,7 @@ mod tests {
             (prefixed('w', 'K'), Action::NewSticky),
             (prefixed('w', 'a'), Action::AgentRun),
             (prefixed('w', 'A'), Action::AgentApprove),
+            (prefixed('w', 'G'), Action::AgentReviewHandoff),
             (prefixed('w', 'x'), Action::AgentCancel),
             (prefixed('w', 'D'), Action::AgentDashboard),
             (prefixed('c', 'c'), Action::Completion),

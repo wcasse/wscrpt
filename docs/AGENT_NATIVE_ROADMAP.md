@@ -248,9 +248,9 @@ and host readiness passes, spawn `agent.argv` (e.g. `grok agent stdio`), run
 dashboard receipt, and kill the process group on cancel. Fake path remains the
 default. Module: `src/agent_acp.rs`.
 
-**Still open for W2 complete:** richer tool/path mapping, review handoff
-polish, and a real useful human-reviewed edit run. (Needs You permissions and
-dirty-tree gate are on the agents lane.)
+**Still open for W2 complete:** a real useful human-reviewed edit run against a
+live ACP agent. (Needs You, dirty-tree, richer path mapping, and review handoff
+are on the agents lane.)
 
 Gate: dirty-tree protection, exact authority, process/PTY restoration, bounded
 output, crash recovery, and a real useful run reviewed by a human.
