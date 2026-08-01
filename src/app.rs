@@ -1736,6 +1736,8 @@ impl App {
             || self.lsp.client.is_some()
             || self.tasks.is_running()
             || self.git.pending.is_some()
+            || self.agent.job.is_some()
+            || self.agent.port.is_some()
             || self.project.search_worker.is_some()
                 && matches!(
                     self.ui.mode,
@@ -10847,9 +10849,14 @@ impl App {
         paths
     }
 
-    /// Open existing Git surfaces for agent review (status + first touched diff).
+    /// Open existing Git surfaces for agent review — only when useful.
     ///
-    /// Does not invent a new VCS UI — reuses `open_git_status` / `open_git_diff_for_path`.
+    /// Quiet path (perf + less noise):
+    /// - one touched path → open that file's **diff only**
+    /// - multiple paths or Git dirt → open **Git status** (not both status+diff)
+    /// - clean tree and no receipt paths → status line only (no virtual buffers)
+    ///
+    /// Reuses `open_git_status` / `open_git_diff_for_path` only.
     fn handoff_agent_review(&mut self, summary: Option<&str>) {
         let summary = summary
             .map(str::to_owned)
@@ -10873,40 +10880,45 @@ impl App {
         };
         let single_path = (paths.len() == 1).then(|| self.workspace_root().join(&paths[0]));
         let multi_paths = paths.len() > 1;
-        let empty_paths = paths.is_empty();
+        let git_changes = self.git_dirty_change_count().unwrap_or(0);
+        let has_repo = self.git.repository.is_some();
 
         if !self.agent.dashboard_visible {
             self.agent.dashboard_visible = true;
             self.ui.full_redraw = true;
         }
 
-        let has_repo = self.git.repository.is_some();
+        let mut opened = "status line only";
         if has_repo {
-            // Primary review surface: full Git status (read-only virtual buffer).
-            self.open_git_status();
-            // When the receipt names exactly one path, open that file's diff too.
             if let Some(absolute) = single_path {
                 self.open_git_diff_for_path(absolute);
+                opened = "diff";
+            } else if multi_paths || git_changes > 0 {
+                self.open_git_status();
+                opened = "Git status";
             }
+            // else: clean tree, no receipt paths — don't open virtual buffers
         }
 
         self.agent.review_handoff_done = true;
-        if has_repo {
-            let extra = if multi_paths {
-                " · Esc v D pick more diffs"
-            } else if empty_paths {
-                " · Esc v D diffs if needed"
-            } else {
-                ""
-            };
-            self.status(format!(
-                "AGENT REVIEW: {summary} — opened Git status{path_hint}{extra} · Esc w G again · Esc w D dashboard"
-            ));
-        } else {
+        if !has_repo {
             self.status(format!(
                 "AGENT REVIEW: {summary} — no Git repo{path_hint} · Esc w D dashboard"
             ));
+            return;
         }
+        let extra = if multi_paths {
+            " · Esc v D pick diffs"
+        } else if opened == "status line only" {
+            " · Esc v s status · Esc v D diffs if needed"
+        } else if opened == "diff" {
+            " · Esc v s full status"
+        } else {
+            ""
+        };
+        self.status(format!(
+            "AGENT REVIEW: {summary} — {opened}{path_hint}{extra} · Esc w G again · Esc w D"
+        ));
     }
 
     /// Answer a pending ACP permission prompt (Needs You).
@@ -10980,7 +10992,10 @@ impl App {
             return false;
         }
 
-        let mut redraw = false;
+        // Coalesce progress into one status line + throttled paint (remote-friendly).
+        // Urgent paths (Needs You, Review, errors, finish) still paint immediately.
+        let mut progress_status: Option<String> = None;
+        let mut urgent = false;
         let mut finished = false;
         let mut finish_message = None;
         for event in batch {
@@ -10994,6 +11009,8 @@ impl App {
                             if kind == crate::agent_contract::AgentEventKind::ReviewReady
                                 || outcome.run_state == crate::agent_contract::AgentRunState::Review
                             {
+                                urgent = true;
+                                progress_status = None;
                                 if !self.agent.review_handoff_done {
                                     self.handoff_agent_review(Some(&summary));
                                 } else {
@@ -11004,21 +11021,22 @@ impl App {
                             } else {
                                 let label =
                                     crate::agent_runtime::run_state_label(outcome.run_state);
-                                self.status(format!("{label}: {summary}"));
+                                progress_status = Some(format!("{label}: {summary}"));
                             }
-                            redraw = true;
                         }
                         Err(error) => {
+                            urgent = true;
+                            progress_status = None;
                             self.error(format!("agent event refused: {error}"));
-                            redraw = true;
                         }
                     }
                 }
                 crate::agent_runtime::AgentJobEvent::Notice(message) => {
-                    self.status(message);
-                    redraw = true;
+                    progress_status = Some(message);
                 }
                 crate::agent_runtime::AgentJobEvent::PermissionNeeded(pending) => {
+                    urgent = true;
+                    progress_status = None;
                     self.agent.pending_permission = Some(pending.clone());
                     if !self.agent.dashboard_visible {
                         self.agent.dashboard_visible = true;
@@ -11028,10 +11046,11 @@ impl App {
                         "AGENT NEED YOU: {} — Y allow · N deny · Esc w A allow · Esc w x cancel",
                         pending.summary
                     ));
-                    redraw = true;
                 }
                 crate::agent_runtime::AgentJobEvent::Finished { cancelled, error } => {
                     finished = true;
+                    urgent = true;
+                    progress_status = None;
                     finish_message = Some(if cancelled {
                         "Agent finished (cancelled)".to_owned()
                     } else if let Some(error) = error {
@@ -11044,7 +11063,6 @@ impl App {
                             )
                         )
                     });
-                    redraw = true;
                 }
             }
         }
@@ -11066,8 +11084,17 @@ impl App {
             } else if let Some(message) = finish_message {
                 self.status(message);
             }
+        } else if !urgent {
+            if let Some(message) = progress_status {
+                self.status(message);
+            }
         }
-        redraw
+        if urgent {
+            true
+        } else {
+            // Progress-only batch: share the global background paint budget (~15 fps).
+            self.take_background_redraw(true)
+        }
     }
 
     fn navigate_bookmark(&mut self, forward: bool) {
