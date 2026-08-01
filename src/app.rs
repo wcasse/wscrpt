@@ -295,6 +295,11 @@ enum PendingLspRequest {
 enum ConfirmKind {
     Quit,
     CloseBuffer,
+    /// Git worktree has uncommitted changes; Y starts the agent goal anyway.
+    AgentDirtyTree {
+        goal: String,
+        git_changes: usize,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -2029,6 +2034,12 @@ impl App {
             UiMode::Confirm(ConfirmKind::CloseBuffer) => {
                 " Unsaved buffer — S save   D discard & close   Esc cancel ".to_owned()
             }
+            UiMode::Confirm(ConfirmKind::AgentDirtyTree { git_changes, .. }) => {
+                format!(
+                    " Dirty tree ({git_changes} path{}) — Y start agent anyway   Esc cancel · Esc v s Git ",
+                    if git_changes == 1 { "" } else { "s" }
+                )
+            }
             UiMode::TaskTrust(ref name) => format!(
                 " Task {name:?} may execute workspace code — V details   Y trust once & run   Esc cancel "
             ),
@@ -2912,6 +2923,7 @@ impl App {
                     let _ = self.close_active_buffer(true);
                     self.ui.mode = UiMode::Edit;
                 }
+                ConfirmKind::AgentDirtyTree { .. } => {}
             },
             KeyCode::Char('s' | 'S') => match kind {
                 ConfirmKind::Quit => {
@@ -2926,7 +2938,18 @@ impl App {
                         self.ui.mode = UiMode::Edit;
                     }
                 }
+                ConfirmKind::AgentDirtyTree { .. } => {}
             },
+            KeyCode::Char('y' | 'Y') => {
+                if let ConfirmKind::AgentDirtyTree { goal, git_changes } = kind {
+                    self.ui.mode = UiMode::Edit;
+                    self.status(format!(
+                        "starting agent on dirty tree ({git_changes} Git path{})",
+                        if git_changes == 1 { "" } else { "s" }
+                    ));
+                    self.start_agent_run_unchecked(goal);
+                }
+            }
             _ => {}
         }
     }
@@ -10642,6 +10665,60 @@ impl App {
     }
 
     fn start_agent_run(&mut self, goal: String) {
+        if let Err(error) = crate::agent_runtime::validate_goal_input(&goal) {
+            self.error(error);
+            return;
+        }
+        if self.agent.job.is_some() && self.agent.coordinator.is_active() {
+            self.error("Agent already running; cancel with Esc w x first");
+            return;
+        }
+
+        // Dirty-tree gate: unsaved buffers hard-block; Git dirt soft-confirms.
+        let dirty_buffers = self.count_dirty_agent_buffers();
+        if dirty_buffers > 0 {
+            self.error(format!(
+                "save {dirty_buffers} dirty buffer{} first (Esc S) — agent will not race unsaved edits",
+                if dirty_buffers == 1 { "" } else { "s" }
+            ));
+            return;
+        }
+        if let Some(git_changes) = self.git_dirty_change_count() {
+            if git_changes > 0 {
+                self.ui.mode = UiMode::Confirm(ConfirmKind::AgentDirtyTree { goal, git_changes });
+                self.status(format!(
+                    "Git worktree dirty ({git_changes} path{}) — Y start anyway · Esc cancel · Esc v s status",
+                    if git_changes == 1 { "" } else { "s" }
+                ));
+                return;
+            }
+        } else if matches!(self.git.status, ServiceStatus::Pending(_)) {
+            self.status("Git status still loading — dirty-tree not checked for this run");
+        }
+
+        self.start_agent_run_unchecked(goal);
+    }
+
+    /// Count modified, writable buffers (agent must not race unsaved text).
+    fn count_dirty_agent_buffers(&self) -> usize {
+        self.workspace
+            .buffers()
+            .iter()
+            .filter(|editor| editor.document.is_modified() && !editor.document.is_read_only())
+            .count()
+    }
+
+    /// Known Git path count when a repository snapshot is ready; `None` if unknown.
+    fn git_dirty_change_count(&self) -> Option<usize> {
+        match &self.git.status {
+            ServiceStatus::Ready if self.git.repository.is_some() => Some(self.git.changes),
+            ServiceStatus::Ready => Some(0),
+            ServiceStatus::Idle | ServiceStatus::Pending(_) | ServiceStatus::Failed(_) => None,
+        }
+    }
+
+    /// Start a run after dirty-tree checks have passed (or user confirmed).
+    fn start_agent_run_unchecked(&mut self, goal: String) {
         if let Err(error) = crate::agent_runtime::validate_goal_input(&goal) {
             self.error(error);
             return;
@@ -19818,5 +19895,53 @@ done
         assert!(prompt.labels[0].contains("main — Function · demo"));
         app.commit_prompt();
         assert_eq!(app.workspace.active().cursor, 3);
+    }
+
+    #[test]
+    fn agent_run_refuses_dirty_unsaved_buffers() {
+        let mut app = app_with_text("unsaved");
+        app.workspace
+            .active_mut()
+            .insert("x", EditKind::Insert)
+            .expect("edit");
+        assert!(app.workspace.active().document.is_modified());
+        app.start_agent_run("do a thing".to_owned());
+        assert!(app.agent.job.is_none());
+        assert!(
+            app.ui
+                .status
+                .as_ref()
+                .is_some_and(|status| { status.error && status.message.contains("dirty buffer") }),
+            "expected dirty-buffer error, got {:?}",
+            app.ui.status
+        );
+    }
+
+    #[test]
+    fn agent_run_confirms_when_git_worktree_is_dirty() {
+        let temp = tempfile::tempdir().unwrap();
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(temp.path())
+            .status()
+            .expect("git init");
+        let repo = crate::git::GitRepository::discover(temp.path()).expect("discover repo");
+        let mut workspace = Workspace::new(Some(temp.path().to_path_buf())).unwrap();
+        let replaced = workspace
+            .replace_editor(0, crate::Editor::new(Document::from_text("ok")))
+            .expect("buffer");
+        drop(replaced);
+        let mut app = App::new_ready_for_test(workspace, Config::default());
+        app.git.status = ServiceStatus::Ready;
+        app.git.repository = Some(repo);
+        app.git.changes = 3;
+        app.start_agent_run("do a thing".to_owned());
+        assert!(app.agent.job.is_none());
+        assert!(matches!(
+            app.ui.mode,
+            UiMode::Confirm(ConfirmKind::AgentDirtyTree { git_changes: 3, .. })
+        ));
+        app.handle_key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
+        assert!(app.agent.job.is_some(), "Y should start the agent run");
     }
 }
