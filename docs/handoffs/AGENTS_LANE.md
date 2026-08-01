@@ -15,10 +15,12 @@ One bottom **Agents dashboard** is the only agent activity surface:
   - `agent.use_fake = true` (default) → deterministic fake plan-first loop
   - `use_fake = false` + ready host → ACP process via `agent.argv` (e.g. `grok agent stdio`)
 - `Esc w x` — cancel (kills process group when ACP is live)
-- `Esc w D` / `:agent-dashboard` (also `:agents`, `:agent-activity`, `:agent-receipt`, `:agent-status`) — toggle dashboard
-- **`Esc w A` unbound** — reserve only when a distinct agent action appears
-- Auto-open + deeper panel height when run live or receipt non-empty
-- Host auth probe: `wscrpt --health`, `docs/AGENT_AUTH.md`, `agent.use_fake` default true
+- `Esc w D` / `:agent-dashboard` (also `:agents`, …) — toggle dashboard
+- `Esc w A` — **approve** Needs You permission
+- `Esc w G` / `:agent-review` — review handoff → Git status (+ single-path diff)
+- Dirty-tree: unsaved buffers blocked; Git dirt → Y/Esc confirm
+- Live smoke checklist: [AGENTS_LIVE_DEMO.md](AGENTS_LIVE_DEMO.md)
+- Host auth probe: `wscrpt --health`, `docs/AGENT_AUTH.md`
 
 No separate Agent Activity popup. Receipt/detail lives in the dashboard via `format_receipt_lines`.
 
@@ -33,14 +35,16 @@ No separate Agent Activity popup. Receipt/detail lives in the dashboard via `for
 | Host auth readiness (no secrets) | Done |
 | Live ACP stdio process wire | **Done (minimal)** — initialize / session/new / session/prompt; plan + tool_call → receipt; cancel kills process group |
 | Needs You permission prompts | **Done** — dashboard + Y/N / Esc w A allow; ACP `session/request_permission` |
-| Dirty-tree protection / worktree isolation | Open |
 | Full process/PTY restore polish | Partial (process group kill on cancel) |
 | Dirty-tree gate | **Done** — hard refuse dirty buffers; soft confirm when Git paths dirty |
+| Richer ACP path/chunk mapping | **Done** |
+| Review handoff → Git | **Done** — auto + Esc w G |
+| Live demo checklist | [AGENTS_LIVE_DEMO.md](AGENTS_LIVE_DEMO.md) |
 | Review packet object (W3) | Open |
 
 ## Next work (priority order)
 
-1. Keep dashboard the single surface; expand depth/content only.
+1. Human live ACP smoke (see [AGENTS_LIVE_DEMO.md](AGENTS_LIVE_DEMO.md)).
 2. Optional: linked worktree isolation for agent runs (roadmap).
 
 ## Do not
@@ -69,6 +73,7 @@ cargo test --all-targets --all-features --locked
 
 ## Log
 
+- **2026-08-01:** Live demo checklist: [AGENTS_LIVE_DEMO.md](AGENTS_LIVE_DEMO.md) (host has grok + auth; config still fake by default).
 - **2026-08-01:** Review handoff: auto-open Git status (+ single path diff); Esc w G / :agent-review.
 - **2026-08-01:** Richer ACP map: path_touched from tool locations; coalesced message chunks.
 - **2026-08-01:** Dirty-tree gate: refuse unsaved buffers; confirm on Git dirt.
