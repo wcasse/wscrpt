@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod agent_auth;
 pub mod agent_contract;
 pub mod agent_runtime;
 pub mod app;

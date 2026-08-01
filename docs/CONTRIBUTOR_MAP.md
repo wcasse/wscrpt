@@ -37,6 +37,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) (mutation boundaries) and [CHANGELOG.md](
 | **Stickies (W1)** | `src/stickies.rs`; picker + keys in `src/app.rs`, `src/keymap.rs` | Personal XDG + team `.wscrpt/stickies/`; layout path reserved under XDG only. |
 | **Agent run (W2 partial)** | `src/agent_runtime.rs`, `src/agent.rs`; keys in `keymap` / `App` | Fake plan-first loop; `Esc w a` / `A` / `x` / `D` dashboard. ACP process not launched yet. |
 | **Agent dashboard UI** | `src/render.rs` (`agent_dashboard_height`, `paint_agent_dashboard`); `App::agent_dashboard_view` | Bottom content strip above status; mirrors project sidebar toggle pattern. |
+| **Agent auth readiness** | `src/agent_auth.rs`; `Config.agent`; `wscrpt --health`; `docs/AGENT_AUTH.md` | Host CLI owns secrets; wscrpt only probes PATH / env names / markers. |
 | **CLI flags / startup / shell handoff** | `src/main.rs` | `Cli` (clap): path, `--project`, `--mouse` / `--no-mouse`, `--no-osc52`, `--print-default-config`, `--print-command-reference`, `--health`, `--input-diagnostics`, `--no-session`. |
 | **Config defaults / language servers** | `src/config.rs`; default text in `src/main.rs`; discovery `src/lsp_discover.rs` | LSP only from user-global config, never workspace files. `format_on_save` lives on `Config`. |
 | **First-run help** | `src/onboarding.rs`; open from `src/main.rs` via `App::maybe_open_first_run_help` | XDG state flag; set `WSCRPT_SKIP_FIRST_RUN_HELP=1` in automation. |

@@ -2783,10 +2783,18 @@ impl App {
                 kind: PromptFlow::Stickies,
                 ..
             })
-        ) && matches!(key.code, KeyCode::Char('A'))
-        {
-            self.archive_selected_sticky();
-            return;
+        ) {
+            match key.code {
+                KeyCode::Char('A') => {
+                    self.archive_selected_sticky();
+                    return;
+                }
+                KeyCode::Char('X') => {
+                    self.delete_selected_sticky();
+                    return;
+                }
+                _ => {}
+            }
         }
 
         let workspace_tree_was_empty = matches!(
@@ -10162,7 +10170,8 @@ impl App {
         }
         self.begin_prompt(PromptFlow::Stickies);
         if let UiMode::Prompt(prompt) = &mut self.ui.mode {
-            let mut notice = "Enter opens · A archives · filter by title · Esc cancels".to_owned();
+            let mut notice =
+                "Enter opens · A archives · X deletes · filter by title · Esc cancels".to_owned();
             if listing.partial {
                 notice.push_str(" · listing partial");
             }
@@ -10262,6 +10271,43 @@ impl App {
             Ok(note) => {
                 self.status(format!("Archived sticky {}", note.id));
                 self.refresh_prompt_candidates();
+            }
+            Err(error) => self.error(error.to_string()),
+        }
+    }
+
+    fn delete_selected_sticky(&mut self) {
+        let selected = match &self.ui.mode {
+            UiMode::Prompt(prompt) if prompt.kind == PromptFlow::Stickies => {
+                prompt.entries.get(prompt.selected).cloned()
+            }
+            _ => None,
+        };
+        let Some(PromptEntry::Sticky { id, path }) = selected else {
+            self.status("No sticky selected");
+            return;
+        };
+        let library = match self.sticky_library() {
+            Ok(library) => library,
+            Err(error) => {
+                self.error(error);
+                return;
+            }
+        };
+        match library.delete(&id) {
+            Ok(_) => {
+                // If the deleted sticky is the active buffer, close it (force).
+                if self.workspace.active().document.path() == Some(path.as_path()) {
+                    let _ = self.close_active_buffer(true);
+                }
+                let listing = library.list();
+                if listing.notes.is_empty() && !listing.partial {
+                    self.ui.mode = UiMode::Edit;
+                    self.status(format!("Deleted sticky {id} — no stickies left"));
+                } else {
+                    self.status(format!("Deleted sticky {id}"));
+                    self.refresh_prompt_candidates();
+                }
             }
             Err(error) => self.error(error.to_string()),
         }
@@ -10391,17 +10437,31 @@ impl App {
             self.status("Agent already running — Esc w A for activity, Esc w x to cancel");
             return;
         }
-        if !self.config.agent.use_fake && !self.config.agent.argv.is_empty() {
-            self.status(
-                "ACP process agent is configured but not wired yet; set agent.use_fake = true for the demo loop",
-            );
+        let readiness = crate::agent_auth::probe_agent(&self.config.agent);
+        if !self.config.agent.use_fake {
+            if !readiness.ready_for_real_agent() {
+                self.error(format!(
+                    "{} — fix host auth, then retry (docs/AGENT_AUTH.md · wscrpt --health)",
+                    readiness.summary()
+                ));
+                return;
+            }
+            self.status(format!(
+                "{} · ACP launch still demo-gated — Esc continues with fake until process wire lands",
+                readiness.summary()
+            ));
         }
         self.begin_prompt(PromptFlow::AgentGoal);
         if let UiMode::Prompt(prompt) = &mut self.ui.mode {
-            prompt.notice = Some(
-                "Enter starts a plan-first fake agent run · Esc cancels · review via Esc w A"
-                    .to_owned(),
-            );
+            prompt.notice = Some(if self.config.agent.use_fake {
+                "Enter starts a plan-first fake agent run · Esc cancels · review via Esc w A / Esc w D"
+                    .to_owned()
+            } else {
+                format!(
+                    "profile={} · auth looks ready · Enter still runs fake until ACP process is wired · Esc cancels",
+                    self.config.agent.profile
+                )
+            });
         }
     }
 
@@ -10424,11 +10484,18 @@ impl App {
             self.error("Agent already running; cancel with Esc w x first");
             return;
         }
+        // Real ACP process spawn is the next wiring step. Until then, always
+        // run the deterministic fake loop after readiness checks above.
         if !self.config.agent.use_fake {
-            self.error(
-                "Real ACP agents are not enabled in this build path; set agent.use_fake = true in ~/.config/wscrpt/config.toml",
-            );
-            return;
+            let readiness = crate::agent_auth::probe_agent(&self.config.agent);
+            if !readiness.ready_for_real_agent() {
+                self.error(readiness.summary());
+                return;
+            }
+            self.status(format!(
+                "using fake loop (ACP process not launched yet) · {}",
+                readiness.summary()
+            ));
         }
 
         let session = crate::agent_runtime::new_session_id();

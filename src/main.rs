@@ -31,12 +31,18 @@ osc52_copy = true
 # When true, Save requests LSP document formatting before writing to disk.
 format_on_save = false
 
-# Host-local coding agent (user global only). Fake loop is the safe default
-# (Grok Build–style plan → work → review receipts without a live process).
-# Real ACP (e.g. grok agent stdio) is reserved for a later wiring pass.
+# Host-local coding agent (user global only). Auth is NEVER stored here —
+# use the agent CLI login or host env (see docs/AGENT_AUTH.md).
+# Fake loop is the safe default for demos without a provider account.
 [agent]
 use_fake = true
+profile = "fake"
+# Example — Grok Build on this host (after `grok login` or XAI_API_KEY):
+# use_fake = false
+# profile = "grok"
 # argv = ["grok", "agent", "stdio"]
+# required_env = []                    # or ["XAI_API_KEY"] if you use keys only
+# auth_check_argv = ["grok", "--version"]
 
 # Language servers are launched only from this user-owned global config.
 # `wscrpt --health` reports well-known servers found on PATH; it never auto-enables
@@ -470,6 +476,19 @@ fn print_health() {
                 );
             }
         }
+        let readiness = wscrpt::agent_auth::probe_agent(&config.agent);
+        for line in readiness.lines() {
+            println!("{line}");
+        }
+        println!(
+            "agent.ready={}",
+            if readiness.ready_for_real_agent() {
+                "yes"
+            } else {
+                "no"
+            }
+        );
+        println!("agent.summary={}", readiness.summary());
     }
     if !locale.to_ascii_uppercase().contains("UTF-8")
         && !locale.to_ascii_uppercase().contains("UTF8")

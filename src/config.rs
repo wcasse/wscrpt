@@ -26,21 +26,37 @@ pub struct Config {
 }
 
 /// User-global agent launcher. Project trees cannot authorize executables.
+///
+/// **Auth is never stored in this file.** Secrets live in the host agent CLI
+/// (for example `~/.grok/auth.json` after `grok login`) or the process
+/// environment (`XAI_API_KEY`, etc.). See `docs/AGENT_AUTH.md`.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub struct AgentConfig {
     /// Prefer the deterministic fake agent (safe default for demos and CI).
     pub use_fake: bool,
+    /// Label for health/docs: `fake`, `grok`, `claude`, `codex`, or `custom`.
+    pub profile: String,
     /// Optional ACP/process argv for a real agent (for example Grok Build:
     /// `["grok", "agent", "stdio"]`). Ignored while `use_fake` is true.
     pub argv: Vec<String>,
+    /// Optional argv run only by `wscrpt --health` / agent readiness checks
+    /// (never on every keystroke). Exit 0 means the host agent looks signed-in.
+    /// Example: `["grok", "auth", "status"]` when that subcommand exists.
+    pub auth_check_argv: Vec<String>,
+    /// Env var **names** that should be present for this profile (values are
+    /// never written into config). Empty means no env requirement.
+    pub required_env: Vec<String>,
 }
 
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
             use_fake: true,
+            profile: "fake".to_owned(),
             argv: Vec::new(),
+            auth_check_argv: Vec::new(),
+            required_env: Vec::new(),
         }
     }
 }
@@ -102,6 +118,20 @@ impl Config {
 
     fn validate_agent(&self, source_name: &str) -> Result<(), String> {
         const MAX_AGENT_ARGV: usize = 64;
+        const MAX_ENV_NAMES: usize = 32;
+        const MAX_PROFILE_BYTES: usize = 32;
+        if self.agent.profile.is_empty()
+            || self.agent.profile.len() > MAX_PROFILE_BYTES
+            || self
+                .agent
+                .profile
+                .chars()
+                .any(|ch| !(ch.is_ascii_alphanumeric() || ch == '-' || ch == '_'))
+        {
+            return Err(format!(
+                "{source_name}: agent.profile must be 1–{MAX_PROFILE_BYTES} ascii alnum/_/- chars"
+            ));
+        }
         if self.agent.argv.len() > MAX_AGENT_ARGV {
             return Err(format!(
                 "{source_name}: agent.argv is limited to {MAX_AGENT_ARGV} elements"
@@ -111,6 +141,35 @@ impl Config {
             if part.is_empty() || part.chars().any(char::is_control) {
                 return Err(format!(
                     "{source_name}: agent.argv[{index}] must be non-empty without controls"
+                ));
+            }
+        }
+        if self.agent.auth_check_argv.len() > MAX_AGENT_ARGV {
+            return Err(format!(
+                "{source_name}: agent.auth_check_argv is limited to {MAX_AGENT_ARGV} elements"
+            ));
+        }
+        for (index, part) in self.agent.auth_check_argv.iter().enumerate() {
+            if part.is_empty() || part.chars().any(char::is_control) {
+                return Err(format!(
+                    "{source_name}: agent.auth_check_argv[{index}] must be non-empty without controls"
+                ));
+            }
+        }
+        if self.agent.required_env.len() > MAX_ENV_NAMES {
+            return Err(format!(
+                "{source_name}: agent.required_env is limited to {MAX_ENV_NAMES} names"
+            ));
+        }
+        for (index, name) in self.agent.required_env.iter().enumerate() {
+            if name.is_empty()
+                || name.len() > 128
+                || !name
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+            {
+                return Err(format!(
+                    "{source_name}: agent.required_env[{index}] must be a simple env name"
                 ));
             }
         }

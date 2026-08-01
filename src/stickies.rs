@@ -249,6 +249,31 @@ impl StickyLibrary {
         Ok(note)
     }
 
+    /// Permanently delete a sticky file (personal or team). Returns true if a
+    /// file was removed.
+    pub fn delete(&self, id: &str) -> Result<bool, StickyError> {
+        validate_id(id, "sticky_id").map_err(StickyError::Contract)?;
+        let mut removed = false;
+        for store in [StickyStore::Personal, StickyStore::Team] {
+            let path = self.path_for(store, id)?;
+            match fs::remove_file(&path) {
+                Ok(()) => removed = true,
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(source) => {
+                    return Err(StickyError::Io {
+                        action: "delete sticky",
+                        path,
+                        source,
+                    });
+                }
+            }
+        }
+        if !removed {
+            return Err(StickyError::NotFound(id.to_owned()));
+        }
+        Ok(true)
+    }
+
     /// List personal and team stickies with bounded scan and labeled partials.
     pub fn list(&self) -> StickyListing {
         let mut listing = StickyListing::default();
@@ -1000,6 +1025,28 @@ mod tests {
         assert!(archived.archived);
         let restored = library.unarchive(&note.id).unwrap();
         assert!(!restored.archived);
+    }
+
+    #[test]
+    fn delete_removes_file_and_list_entry() {
+        let (_workspace, _state, library) = library();
+        let note = library
+            .create(
+                StickyStore::Personal,
+                "Doomed",
+                "bye\n",
+                StickyAnchor::Workspace,
+            )
+            .unwrap();
+        let path = library.path_for(StickyStore::Personal, &note.id).unwrap();
+        assert!(path.is_file());
+        assert!(library.delete(&note.id).unwrap());
+        assert!(!path.exists());
+        assert!(library.list().notes.is_empty());
+        assert!(matches!(
+            library.delete(&note.id),
+            Err(StickyError::NotFound(_))
+        ));
     }
 
     #[test]
