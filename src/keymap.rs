@@ -244,6 +244,7 @@ pub enum Action {
     AgentDashboard,
     AgentChecklist,
     AgentApplyChecklist,
+    AgentApplyReceipt,
     Completion,
     Definition,
     References,
@@ -361,6 +362,7 @@ impl Action {
         Self::AgentDashboard,
         Self::AgentChecklist,
         Self::AgentApplyChecklist,
+        Self::AgentApplyReceipt,
         Self::Completion,
         Self::Definition,
         Self::References,
@@ -1068,6 +1070,14 @@ pub static COMMANDS: &[Command] = &[
         ["agent", "checklist", "apply", "sticky", "confirm"]
     ),
     command!(
+        AgentApplyReceipt,
+        "workspace.agent-apply-receipt",
+        "Apply Receipt Log to Sticky",
+        Workspace,
+        prefixed('w', 'A'),
+        ["agent", "receipt", "apply", "sticky", "log", "writeback"]
+    ),
+    command!(
         Completion,
         "code.completion",
         "Completion",
@@ -1464,6 +1474,7 @@ fn hint_actions(prefix: PrefixState) -> &'static [Action] {
             Action::AgentDashboard,
             Action::AgentChecklist,
             Action::AgentApplyChecklist,
+            Action::AgentApplyReceipt,
         ],
         PrefixState::Code => &[
             Action::Completion,
@@ -1827,6 +1838,7 @@ mod tests {
             (prefixed('w', 'D'), Action::AgentDashboard),
             (prefixed('w', 'C'), Action::AgentChecklist),
             (prefixed('w', 'Y'), Action::AgentApplyChecklist),
+            (prefixed('w', 'A'), Action::AgentApplyReceipt),
             (prefixed('c', 'c'), Action::Completion),
             (prefixed('c', 'd'), Action::Definition),
             (prefixed('c', 'r'), Action::References),
@@ -2172,12 +2184,10 @@ mod tests {
 
         keymap.feed(Key::Escape);
         keymap.feed(Key::Character('w'));
-        // Esc w A is intentionally unbound (Agents surface is the bottom dashboard).
+        // Esc w A applies the staged receipt log to a sticky (S4 write-back).
         assert_eq!(
             keymap.feed(Key::Character('A')),
-            Some(Resolution::Unknown(UnknownSequence {
-                sequence: prefixed('w', 'A')
-            }))
+            Some(Resolution::Command(Action::AgentApplyReceipt))
         );
         assert_eq!(keymap.state(), PrefixState::Inactive);
     }

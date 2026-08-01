@@ -978,6 +978,83 @@ pub fn apply_checklist_done(body: &str, done_line_indices: &[usize]) -> String {
     result
 }
 
+// ---------------------------------------------------------------------------
+// Receipt log write-back (workflow S4 — human-confirmed append under ## Log)
+// ---------------------------------------------------------------------------
+
+/// Maximum bullets appended from one agent receipt write-back.
+pub const MAX_RECEIPT_LOG_BULLETS: usize = 16;
+
+/// Maximum bytes for one log bullet line (after kind prefix).
+pub const MAX_RECEIPT_LOG_LINE_BYTES: usize = 200;
+
+/// Append a receipt block under a `## Log` section (created if missing).
+///
+/// Human-only path: callers must confirm before writing. Does not mutate body
+/// when `bullets` is empty. Truncates if the result would exceed
+/// [`crate::agent_contract::MAX_STICKY_BODY_BYTES`].
+pub fn append_receipt_log(body: &str, title: &str, bullets: &[String]) -> String {
+    if bullets.is_empty() {
+        return body.to_owned();
+    }
+    let mut title = title.trim().to_owned();
+    if title.is_empty() {
+        title = "agent receipt".to_owned();
+    }
+    if title.len() > MAX_RECEIPT_LOG_LINE_BYTES {
+        title.truncate(MAX_RECEIPT_LOG_LINE_BYTES.saturating_sub(1));
+        title.push('…');
+    }
+
+    let mut out = body.to_owned();
+    if !out.is_empty() && !out.ends_with('\n') {
+        out.push('\n');
+    }
+
+    let has_log = out.lines().any(|line| {
+        let trimmed = line.trim();
+        trimmed == "## Log" || trimmed.starts_with("## Log ")
+    });
+    if !has_log {
+        if !out.is_empty() && !out.ends_with("\n\n") {
+            if out.ends_with('\n') {
+                out.push('\n');
+            } else {
+                out.push_str("\n\n");
+            }
+        }
+        out.push_str("## Log\n");
+    }
+
+    if !out.ends_with('\n') {
+        out.push('\n');
+    }
+    out.push('\n');
+    out.push_str("### ");
+    out.push_str(&title);
+    out.push('\n');
+    for bullet in bullets.iter().take(MAX_RECEIPT_LOG_BULLETS) {
+        let mut line = bullet.trim().to_owned();
+        if line.is_empty() {
+            continue;
+        }
+        if line.len() > MAX_RECEIPT_LOG_LINE_BYTES {
+            line.truncate(MAX_RECEIPT_LOG_LINE_BYTES.saturating_sub(1));
+            line.push('…');
+        }
+        out.push_str("- ");
+        out.push_str(&line);
+        out.push('\n');
+    }
+
+    let limit = crate::agent_contract::MAX_STICKY_BODY_BYTES;
+    if out.len() > limit {
+        out.truncate(limit.saturating_sub(1));
+        out.push('…');
+    }
+    out
+}
+
 fn strip_checkbox_prefix(trimmed: &str) -> Option<(bool, &str)> {
     let bytes = trimmed.as_bytes();
     if bytes.len() < 5 {
@@ -1732,5 +1809,29 @@ mod tests {
         assert!(applied.contains("- [x] wire fan-out"));
         assert!(applied.contains("* [x] done already"));
         assert!(applied.ends_with('\n'));
+    }
+
+    #[test]
+    fn receipt_log_appends_under_log_heading() {
+        let body = "# Goal\nship S4\n";
+        let bullets = vec![
+            "plan: touch src/lib.rs".to_owned(),
+            "path_touched: src/lib.rs".to_owned(),
+        ];
+        let out = append_receipt_log(body, "gen 3 · demo goal", &bullets);
+        assert!(out.contains("## Log\n"));
+        assert!(out.contains("### gen 3 · demo goal\n"));
+        assert!(out.contains("- plan: touch src/lib.rs\n"));
+        assert!(out.contains("- path_touched: src/lib.rs\n"));
+        let again = append_receipt_log(&out, "gen 4", &["notice: done".to_owned()]);
+        assert_eq!(again.matches("## Log").count(), 1);
+        assert!(again.contains("### gen 4\n"));
+        assert!(again.contains("- notice: done\n"));
+    }
+
+    #[test]
+    fn receipt_log_empty_bullets_is_noop() {
+        let body = "keep me";
+        assert_eq!(append_receipt_log(body, "x", &[]), body);
     }
 }

@@ -848,6 +848,8 @@ struct AgentUiState {
     dashboard_visible: bool,
     /// After a checklist fan-out reaches Review, offer write-back to the sticky.
     pending_checklist: Option<PendingChecklistApply>,
+    /// After a sticky-attached run reaches Review, offer receipt log write-back.
+    pending_receipt: Option<PendingReceiptApply>,
 }
 
 /// Write-back of completed checklist lines once the human confirms (Esc w Y).
@@ -856,6 +858,16 @@ struct PendingChecklistApply {
     sticky_id: String,
     line_indices: Vec<usize>,
     generation: u64,
+}
+
+/// Explicit receipt → sticky `## Log` append once the human confirms (Esc w A).
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PendingReceiptApply {
+    sticky_id: String,
+    generation: u64,
+    /// One-line title for the `###` log block (goal / gen).
+    title: String,
+    bullets: Vec<String>,
 }
 
 /// One display row in the bottom agent dashboard.
@@ -1017,6 +1029,7 @@ impl App {
                 last_summary: None,
                 dashboard_visible: false,
                 pending_checklist: None,
+                pending_receipt: None,
             },
             sticky_pad: crate::stickies::StickyPad::default(),
             lsp: LspState {
@@ -2466,6 +2479,15 @@ impl App {
             .flatten();
         let mut refused_limit = None;
         let mut prompt_input_changed = false;
+        // Sticky pad owns paste while focused (same rule as typing).
+        if matches!(&self.ui.mode, UiMode::Edit)
+            && !self.ui.keymap.is_active()
+            && self.sticky_pad.is_focused()
+        {
+            self.sticky_pad.insert_str(text);
+            self.ui.full_redraw = true;
+            return;
+        }
         match &mut self.ui.mode {
             UiMode::Edit if !self.ui.keymap.is_active() => {
                 let result = self.workspace.active_mut().insert(text, EditKind::Paste);
@@ -3087,6 +3109,7 @@ impl App {
             Action::AgentDashboard => self.toggle_agent_dashboard(),
             Action::AgentChecklist => self.start_sticky_checklist_run(),
             Action::AgentApplyChecklist => self.apply_pending_checklist(),
+            Action::AgentApplyReceipt => self.apply_pending_receipt(),
             Action::GlobalSearch if self.project.status.is_pending() => {
                 self.status("Workspace is still indexing; project search will be available shortly")
             }
@@ -4509,6 +4532,7 @@ impl App {
             ExCommand::AgentDashboard => self.toggle_agent_dashboard(),
             ExCommand::AgentChecklist => self.start_sticky_checklist_run(),
             ExCommand::AgentApplyChecklist => self.apply_pending_checklist(),
+            ExCommand::AgentApplyReceipt => self.apply_pending_receipt(),
         }
     }
 
@@ -10486,7 +10510,13 @@ impl App {
 
         if self.agent.pending_checklist.is_some() && lines.len() < visible_rows {
             lines.push(AgentDashboardLine {
-                text: " write-back ready · Esc w Y apply checks to sticky ".to_owned(),
+                text: " checklist write-back ready · Esc w Y apply checks ".to_owned(),
+                emphasis: AgentDashboardEmphasis::RunReview,
+            });
+        }
+        if self.agent.pending_receipt.is_some() && lines.len() < visible_rows {
+            lines.push(AgentDashboardLine {
+                text: " receipt write-back ready · Esc w A append ## Log ".to_owned(),
                 emphasis: AgentDashboardEmphasis::RunReview,
             });
         }
@@ -10635,6 +10665,7 @@ impl App {
         }
         let sticky_attach = self.sticky_pad_attach();
         let sticky_title = sticky_attach.as_ref().map(|s| s.title.clone());
+        let sticky_id = sticky_attach.as_ref().map(|s| s.id.clone());
 
         let session = crate::agent_runtime::new_session_id();
         let workspace_id = self.agent.coordinator.workspace_id();
@@ -10662,7 +10693,12 @@ impl App {
                 return;
             }
         };
-        let fake = crate::agent::FakeAgent::happy_path_edit_with_brief(sticky_title.as_deref());
+        self.agent.pending_receipt = None;
+        self.agent.pending_checklist = None;
+        let fake = crate::agent::FakeAgent::happy_path_edit_with_sticky(
+            sticky_title.as_deref(),
+            sticky_id.as_deref(),
+        );
         let (job, port) =
             crate::agent_runtime::spawn_fake_agent(workspace_id, session, generation, fake);
         self.agent.job = Some(job);
@@ -10677,7 +10713,7 @@ impl App {
             self.ui.full_redraw = true;
         }
         self.status(if attached {
-            "Agent run + sticky brief — Agents dashboard open · Esc w x cancel"
+            "Agent run + sticky brief — after Review Esc w A append receipt · Esc w x cancel"
         } else {
             "Agent run started — open sticky pad (Esc w k) next time to attach a brief"
         });
@@ -10777,7 +10813,13 @@ impl App {
             line_indices,
             generation,
         });
-        let fake = crate::agent::FakeAgent::checklist_fanout(&item_texts, Some(&note.title));
+        self.agent.pending_receipt = None;
+        let sticky_id = note.id.clone();
+        let fake = crate::agent::FakeAgent::checklist_fanout_with_sticky(
+            &item_texts,
+            Some(&note.title),
+            Some(sticky_id.as_str()),
+        );
         let (job, port) =
             crate::agent_runtime::spawn_fake_agent(workspace_id, session, generation, fake);
         self.agent.job = Some(job);
@@ -10883,6 +10925,157 @@ impl App {
         }
     }
 
+    /// Arm S4 write-back when a sticky-attached run reaches Review.
+    fn arm_pending_receipt_writeback(&mut self) {
+        let generation = self.agent.coordinator.generation();
+        let receipt = self.agent.coordinator.receipt();
+        if receipt.is_empty() {
+            return;
+        }
+        let bullets = crate::agent_runtime::receipt_log_bullets(
+            receipt,
+            crate::stickies::MAX_RECEIPT_LOG_BULLETS,
+        );
+        if bullets.is_empty() {
+            return;
+        }
+        // Prefer packet sticky_ids, then open pad, then sticky: artifact_ref on events.
+        let mut sticky_id = self
+            .agent
+            .coordinator
+            .active_packet()
+            .and_then(|packet| packet.sticky_ids.first().cloned());
+        if sticky_id.is_none() {
+            sticky_id = self
+                .sticky_pad
+                .note
+                .as_ref()
+                .filter(|_| self.sticky_pad.visible)
+                .map(|note| note.id.clone());
+        }
+        if sticky_id.is_none() {
+            for event in receipt.iter().rev() {
+                if let Some(artifact) = event.artifact_ref.as_deref()
+                    && let Some(id) = crate::agent::sticky_id_from_artifact_ref(artifact)
+                {
+                    sticky_id = Some(id.to_owned());
+                    break;
+                }
+            }
+        }
+        let Some(sticky_id) = sticky_id else {
+            return;
+        };
+        let mut goal = self
+            .agent
+            .coordinator
+            .active_packet()
+            .map(|packet| packet.goal.clone())
+            .or_else(|| self.agent.last_summary.clone())
+            .unwrap_or_else(|| "agent run".to_owned());
+        if goal.len() > 72 {
+            goal.truncate(69);
+            goal.push('…');
+        }
+        let title = format!("gen {generation} · {goal}");
+        self.agent.pending_receipt = Some(PendingReceiptApply {
+            sticky_id,
+            generation,
+            title,
+            bullets,
+        });
+    }
+
+    /// S4: append a staged receipt log block under `## Log` after human confirm.
+    fn apply_pending_receipt(&mut self) {
+        let Some(pending) = self.agent.pending_receipt.clone() else {
+            self.status("No receipt write-back pending — finish a sticky-attached run first");
+            return;
+        };
+        let state = self.agent.coordinator.run_state();
+        let generation_matches = self.agent.coordinator.generation() == pending.generation;
+        let review_ok = matches!(
+            state,
+            crate::agent_contract::AgentRunState::Review
+                | crate::agent_contract::AgentRunState::Closed
+        );
+        if !review_ok || !generation_matches {
+            self.error("Wait until the agent run reaches REVIEW, then Esc w A");
+            return;
+        }
+        if pending.bullets.is_empty() {
+            self.agent.pending_receipt = None;
+            self.status("Receipt has no loggable events");
+            return;
+        }
+
+        let library = match self.sticky_library() {
+            Ok(library) => library,
+            Err(error) => {
+                self.error(error);
+                return;
+            }
+        };
+
+        let applied = if self
+            .sticky_pad
+            .note
+            .as_ref()
+            .is_some_and(|note| note.id == pending.sticky_id)
+        {
+            if let Some(note) = self.sticky_pad.note.as_mut() {
+                note.body_markdown = crate::stickies::append_receipt_log(
+                    &note.body_markdown,
+                    &pending.title,
+                    &pending.bullets,
+                );
+                note.updated_at_unix_ms = crate::agent_contract::unix_now_ms();
+                self.sticky_pad.dirty = true;
+                match self.sticky_pad.save_if_dirty(&library) {
+                    Ok(()) => true,
+                    Err(error) => {
+                        self.error(error.to_string());
+                        return;
+                    }
+                }
+            } else {
+                false
+            }
+        } else {
+            match library.load(&pending.sticky_id) {
+                Ok(mut note) => {
+                    note.body_markdown = crate::stickies::append_receipt_log(
+                        &note.body_markdown,
+                        &pending.title,
+                        &pending.bullets,
+                    );
+                    note.updated_at_unix_ms = crate::agent_contract::unix_now_ms();
+                    match library.save(&note) {
+                        Ok(_) => true,
+                        Err(error) => {
+                            self.error(error.to_string());
+                            return;
+                        }
+                    }
+                }
+                Err(error) => {
+                    self.error(error.to_string());
+                    return;
+                }
+            }
+        };
+
+        if applied {
+            let n = pending.bullets.len();
+            self.agent.pending_receipt = None;
+            self.ui.full_redraw = true;
+            self.status(format!(
+                "Appended {n} receipt line(s) to sticky {} under ## Log",
+                pending.sticky_id
+            ));
+        }
+    }
+
     fn cancel_agent_run(&mut self) {
         if let Some(job) = &self.agent.job {
             job.cancel();
@@ -10891,6 +11084,7 @@ impl App {
         self.agent.job = None;
         self.agent.port = None;
         self.agent.pending_checklist = None;
+        self.agent.pending_receipt = None;
         if cancelled.is_some() {
             self.agent.last_summary = Some("agent cancelled".to_owned());
             self.status("Agent cancelled");
@@ -10935,8 +11129,20 @@ impl App {
                             if kind == crate::agent_contract::AgentEventKind::ReviewReady
                                 || outcome.run_state == crate::agent_contract::AgentRunState::Review
                             {
+                                self.arm_pending_receipt_writeback();
+                                let writeback = if self.agent.pending_checklist.is_some()
+                                    && self.agent.pending_receipt.is_some()
+                                {
+                                    " · Esc w Y checks · Esc w A log"
+                                } else if self.agent.pending_checklist.is_some() {
+                                    " · Esc w Y apply checks"
+                                } else if self.agent.pending_receipt.is_some() {
+                                    " · Esc w A append receipt log"
+                                } else {
+                                    " · Esc v s status · Esc v D diffs"
+                                };
                                 self.status(format!(
-                                    "AGENT REVIEW: {summary} — Esc v s status · Esc v D diffs · Esc w D dashboard"
+                                    "AGENT REVIEW: {summary}{writeback} · Esc w D dashboard"
                                 ));
                             } else {
                                 let label =
@@ -10976,7 +11182,20 @@ impl App {
         if finished {
             self.agent.job = None;
             self.agent.port = None;
-            if let Some(message) = finish_message {
+            if matches!(
+                self.agent.coordinator.run_state(),
+                crate::agent_contract::AgentRunState::Review
+                    | crate::agent_contract::AgentRunState::Closed
+            ) {
+                self.arm_pending_receipt_writeback();
+            }
+            if let Some(mut message) = finish_message {
+                if self.agent.pending_receipt.is_some() {
+                    message.push_str(" · Esc w A append receipt log");
+                }
+                if self.agent.pending_checklist.is_some() {
+                    message.push_str(" · Esc w Y apply checks");
+                }
                 self.status(message);
             }
         }
@@ -12059,6 +12278,280 @@ mod tests {
         unknown.handle_event(Event::Paste("x".to_owned()));
         assert!(unknown.edit_transition_cue_active());
         assert!(unknown.status_is_error());
+    }
+
+    /// Serialize XDG_STATE_HOME mutations so parallel sticky tests do not race.
+    fn with_sticky_state_home<T>(body: impl FnOnce() -> T) -> T {
+        use std::sync::{Mutex, OnceLock};
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        let _guard = LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let state = tempfile::tempdir().expect("sticky state home");
+        // SAFETY: guarded by LOCK for the duration of the sticky test body.
+        unsafe {
+            std::env::set_var("XDG_STATE_HOME", state.path());
+        }
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(body));
+        unsafe {
+            std::env::remove_var("XDG_STATE_HOME");
+        }
+        drop(state);
+        match result {
+            Ok(value) => value,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    }
+
+    fn app_with_workspace_file(root: &Path, relative: &str, text: &str) -> App {
+        let path = root.join(relative);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(&path, text).unwrap();
+        let workspace = Workspace::from_path(Some(path), Some(root.to_path_buf())).unwrap();
+        App::new_ready_for_test(workspace, Config::default())
+    }
+
+    #[test]
+    fn ship_sticky_pad_and_agents_dashboard_toggle_and_coexist() {
+        with_sticky_state_home(|| {
+            let root = tempfile::tempdir().unwrap();
+            let mut app = app_with_workspace_file(root.path(), "main.rs", "fn main() {}\n");
+
+            assert!(!app.sticky_pad_visible());
+            assert!(!app.agent_dashboard_visible());
+
+            app.execute_action(Action::NewSticky);
+            assert!(app.sticky_pad_visible(), "Esc w K opens the floating pad");
+            assert!(app.sticky_pad_focused());
+            assert!(
+                app.sticky_pad
+                    .note
+                    .as_ref()
+                    .is_some_and(|note| !note.id.is_empty())
+            );
+
+            app.execute_action(Action::AgentDashboard);
+            assert!(app.agent_dashboard_visible());
+            assert!(app.sticky_pad_visible(), "dashboard must not hide the pad");
+
+            let dashboard = app.agent_dashboard_view(8);
+            assert!(
+                dashboard
+                    .lines
+                    .iter()
+                    .any(|line| line.text.contains("AGENTS")),
+                "dashboard should render AGENTS header: {:?}",
+                dashboard.lines
+            );
+
+            let layout = crate::render::Layout::calculate(100, 40, 20, true);
+            let height = crate::render::agent_dashboard_height(&app, layout);
+            assert!(height >= 3, "dashboard height {height}");
+            assert!(height + 3 <= layout.content_height);
+
+            app.execute_action(Action::Stickies);
+            assert!(!app.sticky_pad_visible(), "Esc w k toggles pad closed");
+            assert!(app.agent_dashboard_visible());
+
+            app.execute_action(Action::AgentDashboard);
+            assert!(!app.agent_dashboard_visible());
+        });
+    }
+
+    #[test]
+    fn ship_sticky_paste_goes_to_pad_not_document() {
+        with_sticky_state_home(|| {
+            let root = tempfile::tempdir().unwrap();
+            let mut app = app_with_workspace_file(root.path(), "doc.txt", "DOC\n");
+            let before = app.workspace.active().document.text().to_owned();
+            app.execute_action(Action::NewSticky);
+            app.handle_event(Event::Paste("- [ ] item from paste\n".to_owned()));
+            assert_eq!(
+                app.workspace.active().document.text(),
+                before,
+                "focused pad must not paste into the document"
+            );
+            let body = app
+                .sticky_pad
+                .note
+                .as_ref()
+                .map(|n| n.body_markdown.clone())
+                .unwrap_or_default();
+            assert!(
+                body.contains("item from paste"),
+                "paste should land in sticky body: {body:?}"
+            );
+        });
+    }
+
+    #[test]
+    fn ship_fake_agent_run_opens_dashboard_and_reaches_review() {
+        with_sticky_state_home(|| {
+            let root = tempfile::tempdir().unwrap();
+            let mut app = app_with_workspace_file(root.path(), "lib.rs", "pub fn x() {}\n");
+            app.execute_action(Action::NewSticky);
+            app.handle_event(Event::Paste("ship brief context\n".to_owned()));
+
+            app.start_agent_run("audit ship surfaces".to_owned());
+
+            assert!(app.agent_dashboard_visible());
+            assert!(app.agent.job.is_some());
+
+            let deadline = Instant::now() + Duration::from_secs(3);
+            while Instant::now() < deadline {
+                let _ = app.poll_agent_events();
+                if matches!(
+                    app.agent.coordinator.run_state(),
+                    crate::agent_contract::AgentRunState::Review
+                        | crate::agent_contract::AgentRunState::Closed
+                ) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            assert!(
+                matches!(
+                    app.agent.coordinator.run_state(),
+                    crate::agent_contract::AgentRunState::Review
+                        | crate::agent_contract::AgentRunState::Closed
+                ),
+                "fake agent should finish review, got {:?}",
+                app.agent.coordinator.run_state()
+            );
+        });
+    }
+
+    #[test]
+    fn ship_sticky_checklist_fanout_requires_review_before_writeback() {
+        with_sticky_state_home(|| {
+            let root = tempfile::tempdir().unwrap();
+            let mut app = app_with_workspace_file(root.path(), "note.md", "# notes\n");
+            app.execute_action(Action::NewSticky);
+            app.handle_event(Event::Paste(
+                "- [ ] first item\n- [ ] second item\n".to_owned(),
+            ));
+            assert!(
+                app.sticky_pad
+                    .note
+                    .as_ref()
+                    .is_some_and(|n| n.body_markdown.contains("- [ ] first")),
+                "checklist body must be on the pad before fan-out"
+            );
+
+            app.execute_action(Action::AgentChecklist);
+            assert!(
+                app.agent.pending_checklist.is_some(),
+                "checklist run should stage write-back"
+            );
+            assert!(app.agent_dashboard_visible());
+            assert!(app.agent.job.is_some());
+
+            let deadline = Instant::now() + Duration::from_secs(3);
+            while Instant::now() < deadline {
+                let _ = app.poll_agent_events();
+                if matches!(
+                    app.agent.coordinator.run_state(),
+                    crate::agent_contract::AgentRunState::Review
+                        | crate::agent_contract::AgentRunState::Closed
+                ) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+
+            app.execute_action(Action::AgentApplyChecklist);
+            let body = app
+                .sticky_pad
+                .note
+                .as_ref()
+                .map(|n| n.body_markdown.clone())
+                .unwrap_or_default();
+            assert!(
+                body.contains("- [x]") || body.contains("* [x]"),
+                "confirmed write-back should check items off: {body:?}"
+            );
+        });
+    }
+
+    #[test]
+    fn ship_sticky_receipt_writeback_requires_review_and_human_confirm() {
+        with_sticky_state_home(|| {
+            let root = tempfile::tempdir().unwrap();
+            let mut app = app_with_workspace_file(root.path(), "note.md", "# notes\n");
+            app.execute_action(Action::NewSticky);
+            app.handle_event(Event::Paste("goal: ship S4\n".to_owned()));
+
+            app.execute_action(Action::AgentApplyReceipt);
+            assert!(
+                app.status_message()
+                    .is_some_and(|m| m.contains("No receipt") || m.contains("pending")),
+                "apply without run should soft-miss"
+            );
+
+            app.start_agent_run("audit receipt write-back".to_owned());
+            assert!(app.agent.job.is_some());
+
+            let deadline = Instant::now() + Duration::from_secs(3);
+            while Instant::now() < deadline {
+                let _ = app.poll_agent_events();
+                if matches!(
+                    app.agent.coordinator.run_state(),
+                    crate::agent_contract::AgentRunState::Review
+                        | crate::agent_contract::AgentRunState::Closed
+                ) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            assert!(
+                matches!(
+                    app.agent.coordinator.run_state(),
+                    crate::agent_contract::AgentRunState::Review
+                        | crate::agent_contract::AgentRunState::Closed
+                ),
+                "fake agent should reach review"
+            );
+            assert!(
+                app.agent.pending_receipt.is_some(),
+                "sticky-attached run should arm receipt write-back"
+            );
+
+            app.execute_action(Action::AgentApplyReceipt);
+            let body = app
+                .sticky_pad
+                .note
+                .as_ref()
+                .map(|n| n.body_markdown.clone())
+                .unwrap_or_default();
+            assert!(
+                body.contains("## Log"),
+                "confirmed receipt write-back should append ## Log: {body:?}"
+            );
+            assert!(
+                body.contains("plan:") || body.contains("notice:") || body.contains("gen "),
+                "log should include receipt bullets: {body:?}"
+            );
+            assert!(app.agent.pending_receipt.is_none());
+        });
+    }
+
+    #[test]
+    fn ship_line_actions_l_selects_and_l_toggles_numbers() {
+        let mut app = app_with_text("one\ntwo\nthree\n");
+        assert!(app.config().line_numbers);
+        app.execute_action(Action::ToggleLineNumbers);
+        assert!(!app.config().line_numbers);
+        app.execute_action(Action::ToggleLineNumbers);
+        assert!(app.config().line_numbers);
+
+        app.execute_action(Action::SelectLines);
+        assert!(
+            app.workspace.active().selection().is_some(),
+            "Esc l should create or expand a line selection"
+        );
     }
 
     fn test_git_available() -> bool {

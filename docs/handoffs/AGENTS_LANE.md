@@ -20,7 +20,8 @@ One bottom **Agents dashboard** is the only agent activity surface:
 - `Esc w a` / `:agent` — start goal (fake plan-first loop until ACP lands)
 - `Esc w x` — cancel
 - `Esc w D` / `:agent-dashboard` (also `:agents`, `:agent-activity`, `:agent-receipt`, `:agent-status`) — toggle dashboard
-- **`Esc w A` unbound** — reserve only when a distinct agent action appears
+- `Esc w A` / `:apply-receipt` — append receipt log under sticky `## Log` after REVIEW (S4)
+- `Esc w C` / `Esc w Y` — checklist fan-out / apply checkmarks (S2)
 - Auto-open + deeper panel height when run live or receipt non-empty
 - Host auth probe: `wscrpt --health`, `docs/AGENT_AUTH.md`, `agent.use_fake` default true
 
@@ -35,6 +36,9 @@ No separate Agent Activity popup. Receipt/detail lives in the dashboard via `for
 | Bottom Agents dashboard | Done (single surface) |
 | Activity popup removed | Done |
 | Host auth readiness (no secrets) | Done |
+| Sticky brief attach (S1) | Done |
+| Checklist fan-out + human apply (S2) | Done |
+| Receipt → sticky `## Log` (S4) | Done |
 | Live ACP `grok agent stdio` | **Not started** |
 | Needs You permission prompts | Open |
 | Dirty-tree protection / worktree isolation | Open |

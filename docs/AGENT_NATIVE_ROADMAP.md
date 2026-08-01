@@ -176,6 +176,11 @@ Rust crate package):
 Run from this repo in Grok Build: `/sticky-pad-review` or
 `/workflow sticky-anchor-audit` with optional `args.workspace`.
 
+**Product (S4):** sticky-attached runs emit sticky artifact refs
+(`artifact_ref = sticky:<id>`) on brief/notice events. After REVIEW, explicit
+`Esc w A` / `:apply-receipt` appends a bounded receipt slice under `## Log` on
+the sticky — never silent write-back.
+
 The TUI uses a top-right floating pad (not a second buffer). The native iPad app
 may use draggable/resizable SwiftUI cards above the stable terminal/player,
 without rebuilding or reparenting either UIKit surface.

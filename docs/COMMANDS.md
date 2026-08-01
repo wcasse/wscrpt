@@ -87,6 +87,7 @@ Enter the no-timeout action layer with `Esc` or `Ctrl-K`, then type the listed s
 | `Esc w D` | `workspace.agent-dashboard` | Toggle Agents Dashboard |
 | `Esc w C` | `workspace.agent-checklist` | Run Sticky Checklist |
 | `Esc w Y` | `workspace.agent-apply-checklist` | Apply Checklist to Sticky |
+| `Esc w A` | `workspace.agent-apply-receipt` | Apply Receipt Log to Sticky |
 
 ## Code
 

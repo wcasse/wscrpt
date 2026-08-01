@@ -427,6 +427,39 @@ impl FakeStep {
             sensitive: false,
         }
     }
+
+    /// Notice that references a sticky artifact (`sticky:<id>`).
+    pub fn notice_sticky(summary: impl Into<String>, sticky_id: &str) -> Self {
+        let mut step = Self::notice(summary);
+        step.artifact_ref = Some(sticky_artifact_ref(sticky_id));
+        step
+    }
+
+    /// Artifact pointer event (e.g. receipt ready for sticky write-back).
+    pub fn artifact(summary: impl Into<String>, artifact_ref: impl Into<String>) -> Self {
+        Self {
+            kind: AgentEventKind::Artifact,
+            summary: summary.into(),
+            path: None,
+            git_object: None,
+            artifact_ref: Some(artifact_ref.into()),
+            check_ok: None,
+            run_state: None,
+            sensitive: false,
+        }
+    }
+}
+
+/// Stable artifact_ref for sticky-linked receipt events: `sticky:<id>`.
+pub fn sticky_artifact_ref(sticky_id: &str) -> String {
+    format!("sticky:{sticky_id}")
+}
+
+/// True when `artifact_ref` names a sticky (`sticky:<id>`).
+pub fn sticky_id_from_artifact_ref(artifact_ref: &str) -> Option<&str> {
+    artifact_ref
+        .strip_prefix("sticky:")
+        .filter(|id| !id.is_empty())
 }
 
 /// Deterministic agent that emits a fixed script of events.
@@ -453,6 +486,14 @@ impl FakeAgent {
 
     /// Happy path that optionally opens with a sticky-brief notice (workflow S1).
     pub fn happy_path_edit_with_brief(sticky_title: Option<&str>) -> Self {
+        Self::happy_path_edit_with_sticky(sticky_title, None)
+    }
+
+    /// Happy path with sticky brief notice + sticky artifact_ref (S1 + S4).
+    pub fn happy_path_edit_with_sticky(
+        sticky_title: Option<&str>,
+        sticky_id: Option<&str>,
+    ) -> Self {
         let mut steps = Vec::new();
         steps.push(FakeStep::state(AgentRunState::Working, "starting"));
         if let Some(title) = sticky_title.filter(|t| !t.trim().is_empty()) {
@@ -461,17 +502,36 @@ impl FakeAgent {
                 summary.truncate(197);
                 summary.push('…');
             }
-            steps.push(FakeStep::notice(summary));
+            if let Some(id) = sticky_id.filter(|s| !s.is_empty()) {
+                steps.push(FakeStep::notice_sticky(summary, id));
+            } else {
+                steps.push(FakeStep::notice(summary));
+            }
         }
         steps.push(FakeStep::plan("1. touch src/lib.rs\n2. run cargo test"));
         steps.push(FakeStep::path_touched("src/lib.rs", "added module export"));
         steps.push(FakeStep::check(true, "cargo test --locked"));
+        if let Some(id) = sticky_id.filter(|s| !s.is_empty()) {
+            steps.push(FakeStep::artifact(
+                "receipt ready for sticky write-back — Esc w A",
+                sticky_artifact_ref(id),
+            ));
+        }
         steps.push(FakeStep::review_ready("ready for human review"));
         Self { steps }
     }
 
     /// Fan-out script over open checklist item texts (workflow S2).
     pub fn checklist_fanout(items: &[String], sticky_title: Option<&str>) -> Self {
+        Self::checklist_fanout_with_sticky(items, sticky_title, None)
+    }
+
+    /// Checklist fan-out with sticky artifact_ref for receipt write-back (S2 + S4).
+    pub fn checklist_fanout_with_sticky(
+        items: &[String],
+        sticky_title: Option<&str>,
+        sticky_id: Option<&str>,
+    ) -> Self {
         let mut steps = Vec::new();
         steps.push(FakeStep::state(
             AgentRunState::Working,
@@ -483,7 +543,11 @@ impl FakeAgent {
                 summary.truncate(197);
                 summary.push('…');
             }
-            steps.push(FakeStep::notice(summary));
+            if let Some(id) = sticky_id.filter(|s| !s.is_empty()) {
+                steps.push(FakeStep::notice_sticky(summary, id));
+            } else {
+                steps.push(FakeStep::notice(summary));
+            }
         }
         let mut plan = String::from("open checklist:\n");
         for (i, item) in items.iter().enumerate() {
@@ -500,11 +564,21 @@ impl FakeAgent {
                 summary.truncate(197);
                 summary.push('…');
             }
-            steps.push(FakeStep::notice(summary));
+            if let Some(id) = sticky_id.filter(|s| !s.is_empty()) {
+                steps.push(FakeStep::notice_sticky(summary, id));
+            } else {
+                steps.push(FakeStep::notice(summary));
+            }
         }
         steps.push(FakeStep::check(true, "checklist items processed"));
+        if let Some(id) = sticky_id.filter(|s| !s.is_empty()) {
+            steps.push(FakeStep::artifact(
+                "receipt ready for sticky write-back — Esc w A",
+                sticky_artifact_ref(id),
+            ));
+        }
         steps.push(FakeStep::review_ready(
-            "checklist complete — Esc w Y apply checks to sticky",
+            "checklist complete — Esc w Y apply checks · Esc w A append receipt",
         ));
         Self { steps }
     }

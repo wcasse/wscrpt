@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Receipt → sticky log write-back (S4):** sticky-attached agent runs tag receipt events with `artifact_ref = sticky:<id>`; after REVIEW, `Esc w A` / `:apply-receipt` appends a bounded `## Log` block from the receipt (human confirm only — never silent). Coexists with checklist apply (`Esc w Y`).
+
+### Changed
+
+- `Esc w A` is bound to **Apply Receipt Log to Sticky** (was unbound after the Agent Activity popup removal).
+
 ## [0.2.2] - 2026-08-01
 
 ### Added
@@ -17,7 +25,7 @@
 
 ### Changed
 
-- Removed the separate **Agent Activity** popup (`Esc w A`). Receipt and status live only in the bottom Agents dashboard — one surface, one function. `Esc w A` is unbound until a distinct agent action needs it.
+- Removed the separate **Agent Activity** popup. Receipt and status live only in the bottom Agents dashboard — one surface, one function.
 
 ## [0.2.1] - 2026-08-01
 

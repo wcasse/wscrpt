@@ -311,11 +311,64 @@ pub fn format_receipt_lines(coordinator: &AgentCoordinator, limit: usize) -> Vec
         if let Some(path) = &event.path {
             lines.push(format!("      path {}", path.display()));
         }
+        if let Some(artifact) = &event.artifact_ref {
+            lines.push(format!("      artifact {artifact}"));
+        }
     }
     if receipt.is_empty() {
         lines.push("  (empty)".to_owned());
     }
     lines
+}
+
+/// Build bounded Markdown log bullets from a run receipt (S4 write-back source).
+///
+/// Skips pure state transitions and sensitive events. Prefers plan / path /
+/// check / notice / artifact / review lines so the sticky stays human-readable.
+pub fn receipt_log_bullets(
+    receipt: &[crate::agent_contract::AgentEvent],
+    max: usize,
+) -> Vec<String> {
+    use crate::agent_contract::AgentEventKind;
+    let mut bullets = Vec::new();
+    for event in receipt {
+        if bullets.len() >= max {
+            break;
+        }
+        if event.sensitive {
+            continue;
+        }
+        match event.kind {
+            AgentEventKind::State => continue,
+            AgentEventKind::Plan
+            | AgentEventKind::PathTouched
+            | AgentEventKind::CheckResult
+            | AgentEventKind::Artifact
+            | AgentEventKind::ReviewReady
+            | AgentEventKind::Notice
+            | AgentEventKind::Approval => {}
+        }
+        let one_line = event
+            .summary
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())
+            .unwrap_or("")
+            .to_owned();
+        if one_line.is_empty() {
+            continue;
+        }
+        let mut bullet = format!("{}: {one_line}", event.kind.as_str());
+        if let Some(path) = &event.path {
+            bullet.push_str(&format!(" ({})", path.display()));
+        }
+        if bullet.len() > crate::stickies::MAX_RECEIPT_LOG_LINE_BYTES {
+            bullet.truncate(crate::stickies::MAX_RECEIPT_LOG_LINE_BYTES.saturating_sub(1));
+            bullet.push('…');
+        }
+        bullets.push(bullet);
+    }
+    bullets
 }
 
 #[cfg(test)]
