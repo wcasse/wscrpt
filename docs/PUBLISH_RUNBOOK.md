@@ -1,11 +1,10 @@
 # Publish runbook — v0.2.1 (Strategy A)
 
-Tag **HEAD** as `v0.2.1` after the release-notes fold. Do **not** rewrite history.
-Do **not** move an existing public tag.
+Tag **HEAD** as `v0.2.1` after the release-notes fold.
+Do **not** move an existing public tag once it has been published on that commit.
 
-Identity default: maintainer history (`163216174+wcasse@users.noreply.github.com` / `wcasse`) is
-**intentionally public**. For anonymous republication, stop and use a new
-history-free repository instead.
+Identity: commits use GitHub noreply `163216174+wcasse@users.noreply.github.com`
+(personal mailbox was scrubbed from history). Repo ownership remains `wcasse`.
 
 ## Preconditions
 
