@@ -9,7 +9,7 @@
 //!   `grok agent stdio`); process ACP is gated behind config and not the default.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -19,7 +19,7 @@ use crate::agent_contract::{
     AgentAuthority, AgentEvent, AgentRunState, PathScope, WorkPacket, WorktreeBinding, unix_now_ms,
 };
 
-const EVENT_CAPACITY: usize = 64;
+pub(crate) const EVENT_CAPACITY: usize = 64;
 const FAKE_STEP_PAUSE: Duration = Duration::from_millis(40);
 
 /// Events produced by a background agent job for App admission.
@@ -40,12 +40,32 @@ pub enum AgentJobEvent {
 #[derive(Debug)]
 pub struct AgentJob {
     cancel: Arc<AtomicBool>,
+    /// Live ACP process group leader pid (0 / absent for fake jobs).
+    pub(crate) child_pid: Option<Arc<AtomicU32>>,
     _handle: JoinHandle<()>,
 }
 
 impl AgentJob {
+    pub(crate) fn new(
+        cancel: Arc<AtomicBool>,
+        child_pid: Option<Arc<AtomicU32>>,
+        handle: JoinHandle<()>,
+    ) -> Self {
+        Self {
+            cancel,
+            child_pid,
+            _handle: handle,
+        }
+    }
+
     pub fn cancel(&self) {
         self.cancel.store(true, Ordering::Release);
+        if let Some(pid_cell) = &self.child_pid {
+            let pid = pid_cell.load(Ordering::Acquire);
+            if pid != 0 {
+                crate::agent_acp::kill_agent_process_group(pid);
+            }
+        }
     }
 
     pub fn is_cancelled(&self) -> bool {
@@ -60,6 +80,10 @@ pub struct AgentEventPort {
 }
 
 impl AgentEventPort {
+    pub(crate) fn new(receiver: Receiver<AgentJobEvent>) -> Self {
+        Self { receiver }
+    }
+
     pub fn try_recv(&self) -> Result<AgentJobEvent, TryRecvError> {
         self.receiver.try_recv()
     }
@@ -90,12 +114,21 @@ pub fn spawn_fake_agent(
         })
         .expect("spawn fake agent thread");
     (
-        AgentJob {
-            cancel,
-            _handle: handle,
-        },
-        AgentEventPort { receiver },
+        AgentJob::new(cancel, None, handle),
+        AgentEventPort::new(receiver),
     )
+}
+
+/// Spawn a host-configured ACP process agent (`agent.use_fake = false`).
+pub fn spawn_process_agent(
+    workspace_id: u64,
+    session_id: impl Into<String>,
+    generation: u64,
+    cwd: impl Into<std::path::PathBuf>,
+    argv: &[String],
+    goal: impl Into<String>,
+) -> Result<(AgentJob, AgentEventPort), String> {
+    crate::agent_acp::spawn_acp_agent(workspace_id, session_id, generation, cwd, argv, goal)
 }
 
 fn run_fake(

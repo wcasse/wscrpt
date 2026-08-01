@@ -838,7 +838,7 @@ struct TaskState {
     last: Option<String>,
 }
 
-/// Host-local agent orchestration (W2). Fake agent by default; ACP argv later.
+/// Host-local agent orchestration (W2). Fake agent by default; ACP process when configured.
 struct AgentUiState {
     coordinator: crate::agent::AgentCoordinator,
     job: Option<crate::agent_runtime::AgentJob>,
@@ -10558,8 +10558,13 @@ impl App {
                 return;
             }
             self.status(format!(
-                "{} · ACP launch still demo-gated — Esc continues with fake until process wire lands",
-                readiness.summary()
+                "{} · Enter launches ACP process ({})",
+                readiness.summary(),
+                if self.config.agent.argv.is_empty() {
+                    "argv empty".to_owned()
+                } else {
+                    self.config.agent.argv.join(" ")
+                }
             ));
         }
         self.begin_prompt(PromptFlow::AgentGoal);
@@ -10569,8 +10574,9 @@ impl App {
                     .to_owned()
             } else {
                 format!(
-                    "profile={} · auth looks ready · Enter still runs fake until ACP process is wired · Esc cancels",
-                    self.config.agent.profile
+                    "profile={} · Enter starts ACP `{}` · Esc cancels · dashboard Esc w D",
+                    self.config.agent.profile,
+                    self.config.agent.argv.join(" ")
                 )
             });
         }
@@ -10585,18 +10591,14 @@ impl App {
             self.error("Agent already running; cancel with Esc w x first");
             return;
         }
-        // Real ACP process spawn is the next wiring step. Until then, always
-        // run the deterministic fake loop after readiness checks above.
-        if !self.config.agent.use_fake {
+
+        let use_process = !self.config.agent.use_fake;
+        if use_process {
             let readiness = crate::agent_auth::probe_agent(&self.config.agent);
             if !readiness.ready_for_real_agent() {
                 self.error(readiness.summary());
                 return;
             }
-            self.status(format!(
-                "using fake loop (ACP process not launched yet) · {}",
-                readiness.summary()
-            ));
         }
 
         let session = crate::agent_runtime::new_session_id();
@@ -10623,20 +10625,48 @@ impl App {
                 return;
             }
         };
-        let (job, port) = crate::agent_runtime::spawn_fake_agent(
-            workspace_id,
-            session,
-            generation,
-            crate::agent::FakeAgent::happy_path_edit(),
-        );
+
+        let (job, port) = if use_process {
+            match crate::agent_runtime::spawn_process_agent(
+                workspace_id,
+                session,
+                generation,
+                self.workspace_root(),
+                &self.config.agent.argv,
+                goal.trim(),
+            ) {
+                Ok(pair) => pair,
+                Err(error) => {
+                    let _ = self.agent.coordinator.cancel_run();
+                    self.error(error);
+                    return;
+                }
+            }
+        } else {
+            crate::agent_runtime::spawn_fake_agent(
+                workspace_id,
+                session,
+                generation,
+                crate::agent::FakeAgent::happy_path_edit(),
+            )
+        };
+
         self.agent.job = Some(job);
         self.agent.port = Some(port);
-        self.agent.last_summary = Some("agent started (fake plan-first loop)".to_owned());
+        self.agent.last_summary = Some(if use_process {
+            "agent started (ACP process)".to_owned()
+        } else {
+            "agent started (fake plan-first loop)".to_owned()
+        });
         if !self.agent.dashboard_visible {
             self.agent.dashboard_visible = true;
             self.ui.full_redraw = true;
         }
-        self.status("Agent run started — Agents dashboard open · Esc w x cancel · Esc w D hide");
+        self.status(if use_process {
+            "ACP agent run started — Agents dashboard open · Esc w x cancel · Esc w D hide"
+        } else {
+            "Agent run started — Agents dashboard open · Esc w x cancel · Esc w D hide"
+        });
     }
 
     fn cancel_agent_run(&mut self) {
@@ -14047,7 +14077,7 @@ mod tests {
             assert_eq!(budget.handled_events(), batch.len());
             assert_eq!(
                 budget.retained_bytes(),
-                batch.iter().map(|(_, bytes)| bytes).sum()
+                batch.iter().map(|(_, bytes)| bytes).sum::<usize>()
             );
             polls.push(batch);
         }
