@@ -856,7 +856,8 @@ struct AgentUiState {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct PendingChecklistApply {
     sticky_id: String,
-    line_indices: Vec<usize>,
+    /// Open-item texts at fan-out start; re-resolved against the body at apply.
+    item_texts: Vec<String>,
     generation: u64,
 }
 
@@ -1153,6 +1154,7 @@ impl App {
 
     pub fn set_screen_size(&mut self, size: (u16, u16)) {
         self.ui.screen_size = size;
+        self.sync_sticky_pad_viewport();
         // Narrow/short terminals cannot paint the pad (frame_for returns None).
         // Drop focus so keys do not edit an invisible card.
         if self.sticky_pad.is_focused() && !self.sticky_pad_can_paint() {
@@ -1163,6 +1165,11 @@ impl App {
 
     /// Whether the floating pad has room to paint in the current screen size.
     fn sticky_pad_can_paint(&self) -> bool {
+        self.sticky_pad_frame().is_some()
+    }
+
+    /// Paint frame for the sticky card in the current screen layout (if any).
+    fn sticky_pad_frame(&self) -> Option<crate::stickies::StickyPadFrame> {
         let layout = Layout::calculate(
             self.ui.screen_size.0,
             self.ui.screen_size.1,
@@ -1172,7 +1179,14 @@ impl App {
         let agent_h = crate::render::agent_dashboard_height(self, layout);
         let content_height = layout.content_height.saturating_sub(agent_h);
         crate::stickies::StickyPad::frame_for(layout.width, layout.content_y, content_height)
-            .is_some()
+    }
+
+    /// Align pad scroll math with the card height that paint will use.
+    fn sync_sticky_pad_viewport(&mut self) {
+        if let Some(frame) = self.sticky_pad_frame() {
+            let rows = crate::stickies::StickyPad::body_rows_for_height(frame.height);
+            self.sticky_pad.set_viewport_body_rows(rows);
+        }
     }
 
     pub fn soft_wrap_enabled(&self) -> bool {
@@ -10295,6 +10309,8 @@ impl App {
     }
 
     fn handle_sticky_pad_key(&mut self, key: KeyEvent) {
+        // Keep cursor scroll aligned with the painted card before any edit.
+        self.sync_sticky_pad_viewport();
         // Mirror editor Action routing so SSH/Blink Alt chords and Ctrl-K work
         // while the pad is focused. Esc (when Action is idle) returns to the editor.
         if !self.ui.keymap.is_active()
@@ -10843,7 +10859,6 @@ impl App {
                 }
             })
             .collect();
-        let line_indices: Vec<usize> = open.iter().map(|item| item.line_index).collect();
         let goal = format!(
             "checklist fan-out: {} open item(s) from sticky {}",
             item_texts.len(),
@@ -10881,7 +10896,7 @@ impl App {
         };
         self.agent.pending_checklist = Some(PendingChecklistApply {
             sticky_id: note.id.clone(),
-            line_indices,
+            item_texts: item_texts.clone(),
             generation,
         });
         self.agent.pending_receipt = None;
@@ -10939,6 +10954,7 @@ impl App {
             }
         };
 
+        let mut applied_count = 0usize;
         let applied = if self
             .sticky_pad
             .note
@@ -10946,10 +10962,12 @@ impl App {
             .is_some_and(|n| n.id == pending.sticky_id)
         {
             if let Some(note) = self.sticky_pad.note.as_mut() {
-                note.body_markdown = crate::stickies::apply_checklist_done(
+                let (body, n) = crate::stickies::apply_checklist_done_by_texts(
                     &note.body_markdown,
-                    &pending.line_indices,
+                    &pending.item_texts,
                 );
+                applied_count = n;
+                note.body_markdown = body;
                 note.updated_at_unix_ms = crate::agent_contract::unix_now_ms();
                 self.sticky_pad.dirty = true;
                 match self.sticky_pad.save_if_dirty(&library) {
@@ -10965,10 +10983,12 @@ impl App {
         } else {
             match library.load(&pending.sticky_id) {
                 Ok(mut note) => {
-                    note.body_markdown = crate::stickies::apply_checklist_done(
+                    let (body, n) = crate::stickies::apply_checklist_done_by_texts(
                         &note.body_markdown,
-                        &pending.line_indices,
+                        &pending.item_texts,
                     );
+                    applied_count = n;
+                    note.body_markdown = body;
                     note.updated_at_unix_ms = crate::agent_contract::unix_now_ms();
                     match library.save(&note) {
                         Ok(_) => true,
@@ -10986,13 +11006,25 @@ impl App {
         };
 
         if applied {
-            let n = pending.line_indices.len();
             self.agent.pending_checklist = None;
             self.ui.full_redraw = true;
-            self.status(format!(
-                "Applied {n} checklist checkmark(s) to sticky {}",
-                pending.sticky_id
-            ));
+            let planned = pending.item_texts.len();
+            if applied_count == 0 {
+                self.status(format!(
+                    "No matching open checklist lines left on sticky {} (planned {planned})",
+                    pending.sticky_id
+                ));
+            } else if applied_count < planned {
+                self.status(format!(
+                    "Applied {applied_count}/{planned} checklist checkmark(s) on sticky {} (rest already gone or renamed)",
+                    pending.sticky_id
+                ));
+            } else {
+                self.status(format!(
+                    "Applied {applied_count} checklist checkmark(s) to sticky {}",
+                    pending.sticky_id
+                ));
+            }
         }
     }
 
@@ -12543,6 +12575,62 @@ mod tests {
             assert!(
                 body.contains("- [x]") || body.contains("* [x]"),
                 "confirmed write-back should check items off: {body:?}"
+            );
+        });
+    }
+
+
+    #[test]
+    fn ship_sticky_checklist_apply_survives_body_edit() {
+        with_sticky_state_home(|| {
+            let root = tempfile::tempdir().unwrap();
+            let mut app = app_with_workspace_file(root.path(), "tasks.md", "# t\n");
+            app.execute_action(Action::NewSticky);
+            app.handle_event(Event::Paste(
+                "- [ ] alpha task\n- [ ] beta task\n".to_owned(),
+            ));
+            app.execute_action(Action::AgentChecklist);
+            assert!(app.agent.pending_checklist.is_some());
+
+            // Mid-run: insert a new open item above the originals.
+            app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+                KeyCode::Home,
+                KeyModifiers::NONE,
+            )));
+            // Move cursor to start of body and insert a line.
+            if let Some(note) = app.sticky_pad.note.as_mut() {
+                note.body_markdown =
+                    format!("- [ ] inserted\n{}", note.body_markdown);
+                app.sticky_pad.dirty = true;
+                app.sticky_pad.cursor = 0;
+            }
+
+            let deadline = Instant::now() + Duration::from_secs(3);
+            while Instant::now() < deadline {
+                let _ = app.poll_agent_events();
+                if matches!(
+                    app.agent.coordinator.run_state(),
+                    crate::agent_contract::AgentRunState::Review
+                        | crate::agent_contract::AgentRunState::Closed
+                ) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            app.execute_action(Action::AgentApplyChecklist);
+            let body = app
+                .sticky_pad
+                .note
+                .as_ref()
+                .map(|n| n.body_markdown.clone())
+                .unwrap_or_default();
+            assert!(
+                body.contains("- [x] alpha task") && body.contains("- [x] beta task"),
+                "text re-resolve should check original tasks: {body:?}"
+            );
+            assert!(
+                body.contains("- [ ] inserted"),
+                "inserted open item must stay open: {body:?}"
             );
         });
     }

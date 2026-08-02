@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Checklist write-back (Esc w Y):** re-resolves open task texts against the current sticky body instead of frozen line indices, so mid-run edits no longer check the wrong lines. Reports partial apply when some items were renamed or removed.
+- **Sticky pad scroll:** cursor viewport tracks the painted card body height (synced on resize and pad keys).
+
 ## [0.2.3] - 2026-08-01
 
 ### Added

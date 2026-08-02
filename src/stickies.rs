@@ -978,6 +978,44 @@ pub fn apply_checklist_done(body: &str, done_line_indices: &[usize]) -> String {
     result
 }
 
+/// Re-resolve fan-out item texts against the current body (order-preserving).
+///
+/// Matches open (`- [ ]`) checklist lines by trimmed item text. Each body line
+/// is used at most once. Texts equal to `"(empty item)"` match empty checkbox
+/// labels. Returns line indices that still exist as open tasks.
+pub fn resolve_checklist_done_indices(body: &str, item_texts: &[String]) -> Vec<usize> {
+    let mut claimed: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
+    let mut indices = Vec::new();
+    let open: Vec<ChecklistItem> = parse_checklist(body)
+        .into_iter()
+        .filter(|item| !item.done)
+        .collect();
+    for wanted in item_texts {
+        let target = if wanted == "(empty item)" {
+            ""
+        } else {
+            wanted.as_str()
+        };
+        if let Some(item) = open.iter().find(|item| {
+            !claimed.contains(&item.line_index) && item.text == target
+        }) {
+            claimed.insert(item.line_index);
+            indices.push(item.line_index);
+        }
+    }
+    indices
+}
+
+/// Apply checklist done marks by re-resolving item texts against the current body.
+///
+/// Survives mid-run inserts/deletes that shift line indices. Returns the new
+/// body and how many items were successfully checked.
+pub fn apply_checklist_done_by_texts(body: &str, item_texts: &[String]) -> (String, usize) {
+    let indices = resolve_checklist_done_indices(body, item_texts);
+    let n = indices.len();
+    (apply_checklist_done(body, &indices), n)
+}
+
 // ---------------------------------------------------------------------------
 // Receipt log write-back (workflow S4 — human-confirmed append under ## Log)
 // ---------------------------------------------------------------------------
@@ -1100,11 +1138,11 @@ fn mark_line_checked(line: &str) -> String {
 /// Preferred pad size in terminal cells (renderer may shrink on small terminals).
 pub const STICKY_PAD_WIDTH: usize = 34;
 pub const STICKY_PAD_HEIGHT: usize = 12;
-/// Body rows inside the card (title + chrome use the rest).
-pub const STICKY_PAD_BODY_ROWS: usize = 7;
+/// Default body rows for preferred card height (height − chrome).
+pub const STICKY_PAD_BODY_ROWS: usize = StickyPad::body_rows_for_height(STICKY_PAD_HEIGHT);
 
 /// In-memory floating sticky notepad. Storage is still [`StickyLibrary`].
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct StickyPad {
     pub visible: bool,
     pub focused: bool,
@@ -1115,9 +1153,27 @@ pub struct StickyPad {
     pub cursor: usize,
     /// First body line shown when body overflows the card.
     pub scroll: usize,
-    /// Active non-archived note ids for [ / ] cycling (personal + team).
+    /// Last known painted body rows (kept in sync with card height).
+    pub viewport_body_rows: usize,
+    /// Active non-archived note ids for Ctrl-P/N cycling (personal + team).
     pub roster: Vec<String>,
     pub roster_index: usize,
+}
+
+impl Default for StickyPad {
+    fn default() -> Self {
+        Self {
+            visible: false,
+            focused: false,
+            dirty: false,
+            note: None,
+            cursor: 0,
+            scroll: 0,
+            viewport_body_rows: Self::default_body_rows(),
+            roster: Vec::new(),
+            roster_index: 0,
+        }
+    }
 }
 
 /// One painted line of the floating card (renderer maps styles).
@@ -1380,7 +1436,7 @@ impl StickyPad {
         body.insert(byte, ch);
         self.cursor = cursor + 1;
         self.dirty = true;
-        self.ensure_cursor_visible(Self::default_body_rows());
+        self.ensure_cursor_visible(self.viewport_body_rows);
     }
 
     pub fn insert_str(&mut self, text: &str) {
@@ -1400,7 +1456,7 @@ impl StickyPad {
         self.body_mut().replace_range(start..end, "");
         self.cursor = prev;
         self.dirty = true;
-        self.ensure_cursor_visible(Self::default_body_rows());
+        self.ensure_cursor_visible(self.viewport_body_rows);
     }
 
     pub fn delete_forward(&mut self) {
@@ -1424,7 +1480,7 @@ impl StickyPad {
             return;
         }
         self.cursor = previous_grapheme_start(self.body(), self.cursor);
-        self.ensure_cursor_visible(Self::default_body_rows());
+        self.ensure_cursor_visible(self.viewport_body_rows);
     }
 
     pub fn move_right(&mut self) {
@@ -1432,7 +1488,7 @@ impl StickyPad {
             return;
         }
         self.cursor = next_grapheme_end(self.body(), self.cursor);
-        self.ensure_cursor_visible(Self::default_body_rows());
+        self.ensure_cursor_visible(self.viewport_body_rows);
     }
 
     pub fn move_up(&mut self) {
@@ -1445,7 +1501,7 @@ impl StickyPad {
         } else {
             self.cursor = cursor_at_line_col(self.body(), line - 1, col);
         }
-        self.ensure_cursor_visible(Self::default_body_rows());
+        self.ensure_cursor_visible(self.viewport_body_rows);
     }
 
     pub fn move_down(&mut self) {
@@ -1459,17 +1515,30 @@ impl StickyPad {
         } else {
             self.cursor = cursor_at_line_col(self.body(), line + 1, col);
         }
-        self.ensure_cursor_visible(Self::default_body_rows());
+        self.ensure_cursor_visible(self.viewport_body_rows);
     }
 
     /// Interior body rows for a full card height (top + title + body + footer + bottom).
     pub const fn body_rows_for_height(height: usize) -> usize {
         let rows = height.saturating_sub(4);
-        if rows < 3 { 3 } else { rows }
+        if rows < 3 {
+            3
+        } else {
+            rows
+        }
     }
 
     const fn default_body_rows() -> usize {
         Self::body_rows_for_height(STICKY_PAD_HEIGHT)
+    }
+
+    /// Keep cursor scroll in sync with the painted card height.
+    pub fn set_viewport_body_rows(&mut self, body_rows: usize) {
+        let rows = body_rows.max(1);
+        if self.viewport_body_rows != rows {
+            self.viewport_body_rows = rows;
+            self.ensure_cursor_visible(rows);
+        }
     }
 
     fn ensure_cursor_visible(&mut self, body_rows: usize) {
@@ -1834,6 +1903,30 @@ mod tests {
         assert!(applied.contains("- [x] wire fan-out"));
         assert!(applied.contains("* [x] done already"));
         assert!(applied.ends_with('\n'));
+    }
+
+    #[test]
+    fn checklist_apply_by_text_survives_line_shift() {
+        // Fan-out started on these open items (original indices were 1 and 3).
+        let texts = vec!["ship S2".to_owned(), "wire fan-out".to_owned()];
+        // User inserted a line; frozen indices [1, 3] no longer mean those tasks.
+        let shifted =
+            "NEW\n- [ ] inserted open\n- [ ] ship S2\n* [x] done already\n- [ ] wire fan-out\n";
+        let by_index = apply_checklist_done(shifted, &[1, 3]);
+        assert!(
+            by_index.contains("- [x] inserted open"),
+            "frozen indices check the wrong lines: {by_index}"
+        );
+        assert!(
+            by_index.contains("- [ ] ship S2"),
+            "frozen indices miss ship S2: {by_index}"
+        );
+
+        let (by_text, n) = apply_checklist_done_by_texts(shifted, &texts);
+        assert_eq!(n, 2);
+        assert!(by_text.contains("- [x] ship S2"));
+        assert!(by_text.contains("- [x] wire fan-out"));
+        assert!(by_text.contains("- [ ] inserted open"));
     }
 
     #[test]
