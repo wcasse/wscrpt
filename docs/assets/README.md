@@ -37,3 +37,16 @@ python3 docs/assets/generate_mark.py
 | `demo.gif` | README motion proof |
 
 After commit: GitHub → Settings → General → Social preview → upload `og-1200x630.png` if the UI exposes it.
+
+## Project banner
+
+| File | Size | Use |
+| --- | --- | --- |
+| `banner.png` | 1280×640 | Canonical project banner (README / GH social) |
+| `banner-1280x640.png` | 1280×640 | Same as `banner.png` |
+| `banner-1500x500.png` | 1500×500 | Wide / X header style |
+| `og-1200x630.png` | 1200×630 | Link unfurl / Open Graph |
+
+Regenerate with `python3 docs/assets/generate_mark.py`.
+
+After push: GitHub → **Settings → General → Social preview** → upload `banner.png` or `og-1200x630.png`.

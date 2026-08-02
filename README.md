@@ -1,5 +1,7 @@
 # wscrpt
 
+[![banner](docs/assets/banner.png)](https://github.com/wcasse/wscrpt)
+
 [![CI](https://github.com/wcasse/wscrpt/actions/workflows/verify.yml/badge.svg)](https://github.com/wcasse/wscrpt/actions/workflows/verify.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![MSRV](https://img.shields.io/badge/MSRV-1.88-informational)](Cargo.toml)
