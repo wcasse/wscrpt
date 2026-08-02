@@ -480,7 +480,7 @@ wscrpt 0.2.2 — remote-first terminal IDE (iPad/Blink-friendly, MIT, Rust)
 **Body**
 
 ```text
-**What:** Remote-first terminal IDE for real development hosts, optimized for
+**What:** Remote-first terminal IDE for Mac/Linux, optimized for
 thin clients (especially iPad + Magic Keyboard over Blink/SSH/mosh/tmux).
 
 **Why Rust / why this vs existing TUI editors:** Focus is remote input reliability
