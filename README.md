@@ -4,11 +4,11 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![MSRV](https://img.shields.io/badge/MSRV-1.88-informational)](Cargo.toml)
 
-**Terminal IDE for real hosts — made for iPad + Blink.**
+**Terminal IDE for real hosts — iPad-first, any solid SSH client.**
 
-Remote-first terminal IDE for real development hosts — especially iPad + Magic Keyboard sessions over Blink, SSH, or mosh.
+Remote-first terminal IDE for real development hosts. Optimized for iPad + Magic Keyboard (Blink is the well-tested path); works over any solid SSH/mosh client — Termius, desktop terminals, and the rest.
 
-Ordinary typing stays ordinary. `Esc` (or `Ctrl-K`) opens a **no-timeout** action layer that does not depend on Command-key chords or permanent panel clutter. After Action closes, the first real document edit gets one short, steady `EDIT*`/cursor acknowledgement; navigation and failed edits do not trigger it. Mouse reporting is **off by default** so Blink can keep native touch selection.
+Ordinary typing stays ordinary. `Esc` (or `Ctrl-K`) opens a **no-timeout** action layer that does not depend on Command-key chords or permanent panel clutter. After Action closes, the first real document edit gets one short, steady `EDIT*`/cursor acknowledgement; navigation and failed edits do not trigger it. Mouse reporting is **off by default** so clients like Blink can keep native touch selection.
 
 Version **0.2** is a deliberate core: editing, workspace navigation/search, trusted tasks, recovery, sessions, Git inspection plus three trusted local mutations, bounded LSP, and a safe full-screen workspace shell. It is not a VS Code clone. See [CHANGELOG.md](CHANGELOG.md).
 
@@ -18,7 +18,7 @@ Public install pin: **`v0.2.3`**. The key table and demo below match that tag �
 
 ## Who this is for
 
-- You code on a **real** Linux or macOS host and connect from an iPad (or any thin client) over Blink / SSH / mosh / tmux.
+- You code on a **real** Linux or macOS host and connect from an iPad or other thin client over SSH / mosh / tmux (Blink, Termius, desktop terminals, etc.).
 - You want workspace tools (Quick Open, search, tasks, LSP assist, Git inspection plus trusted local stage/commit) without GUI remote desktop.
 - You care about **reliable Escape**, reconnect survival, recovery journals, and clean terminal restore.
 
