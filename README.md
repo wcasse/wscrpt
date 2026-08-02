@@ -4,9 +4,9 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![MSRV](https://img.shields.io/badge/MSRV-1.88-informational)](Cargo.toml)
 
-**Terminal IDE for real hosts — iPad-first, any solid SSH client.**
+**Terminal IDE for Mac and Linux — iPad-first, any solid SSH client.**
 
-Remote-first terminal IDE for real development hosts. Optimized for iPad + Magic Keyboard (Blink is the well-tested path); works over any solid SSH/mosh client — Termius, desktop terminals, and the rest.
+Remote-first terminal IDE that runs on your Mac or Linux machine (not on the iPad). Optimized for iPad + Magic Keyboard (Blink is the well-tested path); works over any solid SSH/mosh client — Termius, desktop terminals, and the rest.
 
 Ordinary typing stays ordinary. `Esc` (or `Ctrl-K`) opens a **no-timeout** action layer that does not depend on Command-key chords or permanent panel clutter. After Action closes, the first real document edit gets one short, steady `EDIT*`/cursor acknowledgement; navigation and failed edits do not trigger it. Mouse reporting is **off by default** so clients like Blink can keep native touch selection.
 

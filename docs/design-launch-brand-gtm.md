@@ -99,7 +99,7 @@ Prefer **`docs/STATUS.md`** over checklist rows when they disagree. As of 2026-0
 | --- | --- | --- |
 | 1 | **Canonical name: `wscrpt`** (lowercase, no dots) | Matches crate, binary, GitHub, config paths. |
 | 2 | Reject `W.SCRPT`; avoid public `w.scrpt` | Vaporware / copy-paste friction. |
-| 3 | **Primary tagline:** *Terminal IDE for real hosts — iPad-first, any solid SSH client.* | Category + iPad design target without implying Blink-only. |
+| 3 | **Primary tagline:** *Terminal IDE for Mac and Linux — iPad-first, any solid SSH client.* | Category + iPad design target without implying Blink-only. |
 | 4 | **Install pin is the only launch claim surface** | Public install today = **`v0.2.2`**. Claims never lead the pin **or** the tip. Hero narrative stays remote-first / Esc reliability — agents are secondary and scoped (fake-by-default; no autonomous ACP headline). |
 | 4a | **Landing README ≡ `git show $PIN:README.md` for launch day** | Essential controls SoT is the **tag tree**, not `main`. Diff default-branch table against pin README; **reject tip-only keys**. For pin `v0.2.2`: include pad + `Esc w a`/`x`/`D`; **exclude** `Esc w C`/`Y` (checklist fan-out) and any other STATUS post-tag chords. Still refuse “autonomous coding agent” overclaim. |
 | 5 | Tonight site = **GitHub README + Release notes**; Pages optional 48h | Sincere users start at the repo. |
@@ -137,7 +137,7 @@ Prefer **`docs/STATUS.md`** over checklist rows when they disagree. As of 2026-0
 
 | Role | Line |
 | --- | --- |
-| **Primary** | Terminal IDE for real hosts — iPad-first, any solid SSH client. |
+| **Primary** | Terminal IDE for Mac and Linux — iPad-first, any solid SSH client. |
 | Backup A | Remote-first terminal IDE. Escape never times out. |
 | Backup B | Code on the host. Type from the iPad. Stay in the terminal. |
 
@@ -199,7 +199,7 @@ Prefer **`docs/STATUS.md`** over checklist rows when they disagree. As of 2026-0
 **Wordmark:** `wscrpt` mono. README prefers one-liner over giant FIGlet:
 
 ```text
-wscrpt — terminal IDE for real hosts
+wscrpt — terminal IDE for Mac and Linux
 ```
 
 #### 2.2 Deliverables
@@ -294,7 +294,7 @@ Optional footer: *Development on `main` may include experimental agent UI and St
 ```markdown
 # wscrpt
 
-**Terminal IDE for real hosts — iPad-first, any solid SSH client.**
+**Terminal IDE for Mac and Linux — iPad-first, any solid SSH client.**
 
 Remote-first editing on macOS/Linux over SSH, mosh, and tmux. Ordinary typing
 stays ordinary. `Esc` (or `Ctrl-K`) opens a **no-timeout** action layer. Mouse
@@ -535,7 +535,7 @@ Deliberate small core (not a VS Code remote clone). Happy to answer Blink/mosh s
 ##### X / Twitter thread (5 posts)
 
 ```text
-1/ wscrpt — terminal IDE for real hosts, iPad-first, any solid SSH client.
+1/ wscrpt — terminal IDE for Mac and Linux, iPad-first, any solid SSH client.
    Esc never times out. Mouse off by default. MIT / Rust.
    github.com/wcasse/wscrpt
 

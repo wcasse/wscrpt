@@ -78,7 +78,7 @@ def main():
     title_f, tag_f, url_f = load_font(72), load_font(28), load_font(22)
     x0 = 420
     d.text((x0, 200), "wscrpt", font=title_f, fill=FG)
-    d.text((x0, 290), "Terminal IDE for real hosts —", font=tag_f, fill=FG)
+    d.text((x0, 290), "Terminal IDE for Mac and Linux —", font=tag_f, fill=FG)
     d.text((x0, 330), "iPad-first, any solid SSH client.", font=tag_f, fill=INDIGO)
     d.text((x0, 420), "github.com/wcasse/wscrpt", font=url_f, fill=MUTED)
     d.rectangle([x0, 180, x0 + 80, 186], fill=INDIGO)
