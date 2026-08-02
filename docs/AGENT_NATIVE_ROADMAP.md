@@ -268,9 +268,14 @@ Needs You / Review states, Esc-driven controls for iPad SSH). Default runtime is
 the deterministic fake agent (`agent.use_fake = true`). Keys: `Esc w a` / `x` /
 `D` (`Esc w A` unbound). Live log: [handoffs/AGENTS_LANE.md](handoffs/AGENTS_LANE.md).
 
-**Still open for W2 complete:** live ACP client for `grok agent stdio` (or peer),
-permission prompts as Needs You approvals, dirty-tree protection, process/PTY
-restore, and a real useful human-reviewed edit run.
+**ACP process (0.2.4):** live NDJSON ACP client for `agent.argv` (e.g. `grok agent
+stdio`) when `use_fake = false` — initialize / session/new / session/prompt,
+receipt mapping, cancel + process-group kill. Permission requests are cancelled
+with a Needs You notice (not silent grant). Fake remains default.
+
+**Still open for W2 complete:** permission *approval* UX (user choose allow),
+client-side fs/terminal ACP methods, dirty-tree protection, process/PTY
+restore polish, and a real useful human-reviewed edit run.
 
 Gate: dirty-tree protection, exact authority, process/PTY restoration, bounded
 output, crash recovery, and a real useful run reviewed by a human.

@@ -10696,10 +10696,7 @@ impl App {
                 ));
                 return;
             }
-            self.status(format!(
-                "{} · ACP launch still demo-gated — Esc continues with fake until process wire lands",
-                readiness.summary()
-            ));
+            self.status(readiness.summary());
         }
         self.begin_prompt(PromptFlow::AgentGoal);
         if let UiMode::Prompt(prompt) = &mut self.ui.mode {
@@ -10714,8 +10711,9 @@ impl App {
                 )
             } else {
                 format!(
-                    "profile={} · auth ready · fake until ACP wired{sticky_hint}",
-                    self.config.agent.profile
+                    "profile={} · Enter launches ACP process ({}){sticky_hint}",
+                    self.config.agent.profile,
+                    self.config.agent.argv.join(" ")
                 )
             });
         }
@@ -10730,18 +10728,13 @@ impl App {
             self.error("Agent already running; cancel with Esc w x first");
             return;
         }
-        // Real ACP process spawn is the next wiring step. Until then, always
-        // run the deterministic fake loop after readiness checks above.
-        if !self.config.agent.use_fake {
+        let use_process = !self.config.agent.use_fake;
+        if use_process {
             let readiness = crate::agent_auth::probe_agent(&self.config.agent);
             if !readiness.ready_for_real_agent() {
                 self.error(readiness.summary());
                 return;
             }
-            self.status(format!(
-                "using fake loop (ACP process not launched yet) · {}",
-                readiness.summary()
-            ));
         }
 
         // Persist open sticky before snapshotting it into the packet.
@@ -10753,6 +10746,9 @@ impl App {
         let sticky_attach = self.sticky_pad_attach();
         let sticky_title = sticky_attach.as_ref().map(|s| s.title.clone());
         let sticky_id = sticky_attach.as_ref().map(|s| s.id.clone());
+        let sticky_brief = sticky_attach.as_ref().map(|s| {
+            crate::agent_runtime::format_sticky_brief(s)
+        });
 
         let session = crate::agent_runtime::new_session_id();
         let workspace_id = self.agent.coordinator.workspace_id();
@@ -10782,15 +10778,41 @@ impl App {
         };
         self.agent.pending_receipt = None;
         self.agent.pending_checklist = None;
-        let fake = crate::agent::FakeAgent::happy_path_edit_with_sticky(
-            sticky_title.as_deref(),
-            sticky_id.as_deref(),
-        );
-        let (job, port) =
-            crate::agent_runtime::spawn_fake_agent(workspace_id, session, generation, fake);
+
+        let (job, port) = if use_process {
+            match crate::agent_acp::spawn_acp_agent(crate::agent_acp::AcpRunRequest {
+                workspace_id,
+                session_id: session.clone(),
+                generation,
+                cwd: self.workspace_root().to_path_buf(),
+                argv: self.config.agent.argv.clone(),
+                goal: goal.trim().to_owned(),
+                sticky_brief,
+                sticky_id: sticky_id.clone(),
+            }) {
+                Ok(pair) => pair,
+                Err(error) => {
+                    let _ = self.agent.coordinator.cancel_run();
+                    self.error(error);
+                    return;
+                }
+            }
+        } else {
+            let fake = crate::agent::FakeAgent::happy_path_edit_with_sticky(
+                sticky_title.as_deref(),
+                sticky_id.as_deref(),
+            );
+            crate::agent_runtime::spawn_fake_agent(workspace_id, session, generation, fake)
+        };
         self.agent.job = Some(job);
         self.agent.port = Some(port);
-        self.agent.last_summary = Some(if attached {
+        self.agent.last_summary = Some(if use_process {
+            if attached {
+                "ACP agent started with sticky brief".to_owned()
+            } else {
+                "ACP agent process started".to_owned()
+            }
+        } else if attached {
             "agent started with sticky brief".to_owned()
         } else {
             "agent started (fake plan-first loop)".to_owned()
@@ -10799,7 +10821,13 @@ impl App {
             self.agent.dashboard_visible = true;
             self.ui.full_redraw = true;
         }
-        self.status(if attached {
+        self.status(if use_process {
+            if attached {
+                "ACP run + sticky brief — Esc w D watch · Esc w x cancel · Esc w A log after Review"
+            } else {
+                "ACP process running — Esc w D dashboard · Esc w x cancel"
+            }
+        } else if attached {
             "Agent run + sticky brief — after Review Esc w A append receipt · Esc w x cancel"
         } else {
             "Agent run started — open sticky pad (Esc w k) next time to attach a brief"
@@ -15043,7 +15071,7 @@ mod tests {
             assert_eq!(budget.handled_events(), batch.len());
             assert_eq!(
                 budget.retained_bytes(),
-                batch.iter().map(|(_, bytes)| bytes).sum()
+                batch.iter().map(|(_, bytes)| bytes).sum::<usize>()
             );
             polls.push(batch);
         }

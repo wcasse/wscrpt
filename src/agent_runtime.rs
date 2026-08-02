@@ -45,6 +45,14 @@ pub struct AgentJob {
 }
 
 impl AgentJob {
+    /// Build a job handle from a shared cancel flag and worker thread.
+    pub fn from_parts(cancel: Arc<AtomicBool>, handle: JoinHandle<()>) -> Self {
+        Self {
+            cancel,
+            _handle: handle,
+        }
+    }
+
     pub fn cancel(&self) {
         self.cancel.store(true, Ordering::Release);
     }
@@ -61,6 +69,10 @@ pub struct AgentEventPort {
 }
 
 impl AgentEventPort {
+    pub fn from_receiver(receiver: Receiver<AgentJobEvent>) -> Self {
+        Self { receiver }
+    }
+
     pub fn try_recv(&self) -> Result<AgentJobEvent, TryRecvError> {
         self.receiver.try_recv()
     }

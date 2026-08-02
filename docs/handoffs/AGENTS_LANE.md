@@ -39,7 +39,7 @@ No separate Agent Activity popup. Receipt/detail lives in the dashboard via `for
 | Sticky brief attach (S1) | Done |
 | Checklist fan-out + human apply (S2) | Done |
 | Receipt → sticky `## Log` (S4) | Done |
-| Live ACP `grok agent stdio` | **Not started** |
+| Live ACP `grok agent stdio` | **Done (0.2.4)** — NDJSON client; permissions auto-cancelled |
 | Needs You permission prompts | Open |
 | Dirty-tree protection / worktree isolation | Open |
 | Real process group + PTY restore | Open |

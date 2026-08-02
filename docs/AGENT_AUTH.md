@@ -68,9 +68,11 @@ Look for:
    wscrpt --health | grep '^agent\.'
    ```
 
-4. Inside wscrpt: `Esc w a` still runs the **fake plan-first loop** until ACP
-   process launch is wired. Auth readiness is enforced so beta testers fail
-   **early** with a clear message instead of a silent hang.
+4. Inside wscrpt: `Esc w a` launches the **ACP process** (`agent.argv`) when
+   `use_fake = false` and readiness passes. The default remains the fake
+   plan-first loop. Auth readiness is enforced so beta testers fail **early**
+   with a clear message instead of a silent hang. Permission requests from the
+   agent are cancelled (Needs You notice) — not auto-approved.
 
 Grok stores session credentials under `~/.grok/auth.json` (owner-only). wscrpt
 only checks that the **path exists**; it never opens the file.

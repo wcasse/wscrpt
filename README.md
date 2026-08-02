@@ -12,7 +12,7 @@ Ordinary typing stays ordinary. `Esc` (or `Ctrl-K`) opens a **no-timeout** actio
 
 Version **0.2** is a deliberate core: editing, workspace navigation/search, trusted tasks, recovery, sessions, Git inspection plus three trusted local mutations, bounded LSP, and a safe full-screen workspace shell. It is not a VS Code clone. See [CHANGELOG.md](CHANGELOG.md).
 
-Public install pin: **`v0.2.3`**. The key table and demo below match that tag — not whatever is on `main`.
+Public install pin: **`v0.2.4`**. The key table and demo below match that tag — not whatever is on `main`.
 
 ![wscrpt demo](docs/assets/demo.gif)
 
@@ -48,7 +48,7 @@ environment; native Windows remains unvalidated. See
 **From GitHub (recommended until crates.io):**
 
 ```sh
-cargo install --git https://github.com/wcasse/wscrpt --tag v0.2.3 --locked
+cargo install --git https://github.com/wcasse/wscrpt --tag v0.2.4 --locked
 wscrpt --health
 ```
 
@@ -81,7 +81,7 @@ cargo run --release -- .
 On the **host** (once):
 
 ```sh
-cargo install --git https://github.com/wcasse/wscrpt --tag v0.2.3 --locked
+cargo install --git https://github.com/wcasse/wscrpt --tag v0.2.4 --locked
 # optional: put a sample task file in each project
 mkdir -p .wscrpt && cp /path/to/wscrpt/examples/tasks.toml .wscrpt/tasks.toml
 ```
@@ -165,9 +165,9 @@ Full list: [docs/COMMANDS.md](docs/COMMANDS.md) or `wscrpt --print-command-refer
 
 Read this before filing “make it like VS Code remote” issues.
 
-- **Install pin is `v0.2.3`.** Landing keys and the demo GIF match that tag.
+- **Install pin is `v0.2.4`.** Landing keys and the demo GIF match that tag.
 - **Agents are fake-by-default** — useful for UI/contracts; not an autonomous merge-push agent or “ACP out of the box.”
-- **previewd / native iPad harness** are contributor experiments; they are not what `cargo install … --tag v0.2.3` gives you.
+- **previewd / native iPad harness** are contributor experiments; they are not what `cargo install … --tag v0.2.4` gives you.
 - **Not a full Git client**, not multi-file LSP refactor, not a GUI remote desktop.
 - Human confidence for every Blink/iPad combo is tracked in [docs/IPAD_BLINK_QA.md](docs/IPAD_BLINK_QA.md); treat wide recommendation as a confidence gate, not a guarantee of every client version.
 

@@ -2,10 +2,21 @@
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-08-01
+
+### Added
+
+- **ACP process wire:** when `agent.use_fake = false` and host readiness passes, `Esc w a` spawns `agent.argv` (for example `grok agent stdio`) as an NDJSON ACP client: `initialize` → `session/new` → `session/prompt`, maps `session/update` into the Agents receipt, cancels via `session/cancel` + process-group kill. Permission requests are auto-cancelled with a Needs You notice (no silent grant). Fake loop remains the default.
+- Dependency: `serde_json` for ACP framing.
+
 ### Fixed
 
 - **Checklist write-back (Esc w Y):** re-resolves open task texts against the current sticky body instead of frozen line indices, so mid-run edits no longer check the wrong lines. Reports partial apply when some items were renamed or removed.
 - **Sticky pad scroll:** cursor viewport tracks the painted card body height (synced on resize and pad keys).
+
+### Changed
+
+- Install documentation and honesty pin move from `v0.2.3` to **`v0.2.4`**.
 
 ## [0.2.3] - 2026-08-01
 
