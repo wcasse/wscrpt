@@ -24,7 +24,7 @@ use crate::agent_contract::{
 };
 use crate::agent_runtime::{
     AgentEventPort, AgentJob, AgentJobEvent, EVENT_CAPACITY, PendingPermission, PermissionDecision,
-    PermissionOption,
+    PermissionOption, send_job_event_auto,
 };
 use crate::lsp_discover::resolve_executable;
 
@@ -37,6 +37,52 @@ const CHUNK_FLUSH_BYTES: usize = 120;
 const CHUNK_FLUSH_IDLE: Duration = Duration::from_millis(400);
 /// Max locations to map into path_touched events per tool update.
 const MAX_PATHS_PER_TOOL: usize = 8;
+
+/// Backpressured deliver: soft events drop when the UI is behind; hard events wait.
+fn deliver(sender: &SyncSender<AgentJobEvent>, event: AgentJobEvent, cancel: &AtomicBool) -> bool {
+    send_job_event_auto(sender, event, Some(cancel))
+}
+
+/// Assign sequence only if the event is queued (soft drops do not burn sequence ids).
+#[allow(clippy::too_many_arguments)]
+fn deliver_sequenced(
+    sequence: &mut u64,
+    sender: &SyncSender<AgentJobEvent>,
+    cancel: &AtomicBool,
+    workspace_id: u64,
+    host_session_id: &str,
+    generation: u64,
+    kind: AgentEventKind,
+    summary: String,
+    run_state: Option<AgentRunState>,
+    path: Option<PathBuf>,
+) -> bool {
+    if *sequence >= MAX_EMITTED_EVENTS {
+        return false;
+    }
+    let next = sequence.saturating_add(1);
+    let event = AgentEvent {
+        workspace_id,
+        session_id: host_session_id.to_owned(),
+        generation,
+        sequence: next,
+        timestamp_unix_ms: unix_now_ms(),
+        kind,
+        summary: truncate_summary(summary),
+        path,
+        git_object: None,
+        artifact_ref: None,
+        check_ok: None,
+        run_state,
+        sensitive: false,
+    };
+    if deliver(sender, AgentJobEvent::Event(event), cancel) {
+        *sequence = next;
+        true
+    } else {
+        false
+    }
+}
 
 /// Coalesces streaming message/thought chunks into sparse receipt lines.
 #[derive(Debug, Default)]
@@ -116,32 +162,25 @@ fn run_acp_session(
 ) {
     let mut sequence = 0u64;
     let mut coalesce = ChunkCoalesce::default();
+    let cancel_for_emit = Arc::clone(&cancel);
     let emit = |sequence: &mut u64,
                 sender: &SyncSender<AgentJobEvent>,
                 kind: AgentEventKind,
                 summary: String,
                 run_state: Option<AgentRunState>,
                 path: Option<PathBuf>| {
-        if *sequence >= MAX_EMITTED_EVENTS {
-            return false;
-        }
-        *sequence = sequence.saturating_add(1);
-        let event = AgentEvent {
+        deliver_sequenced(
+            sequence,
+            sender,
+            cancel_for_emit.as_ref(),
             workspace_id,
-            session_id: host_session_id.clone(),
+            &host_session_id,
             generation,
-            sequence: *sequence,
-            timestamp_unix_ms: unix_now_ms(),
             kind,
-            summary: truncate_summary(summary),
-            path,
-            git_object: None,
-            artifact_ref: None,
-            check_ok: None,
+            summary,
             run_state,
-            sensitive: false,
-        };
-        sender.send(AgentJobEvent::Event(event)).is_ok()
+            path,
+        )
     };
 
     if !emit(
@@ -158,10 +197,14 @@ fn run_acp_session(
     let mut child = match spawn_process(&program, &args, &cwd) {
         Ok(child) => child,
         Err(error) => {
-            let _ = sender.send(AgentJobEvent::Finished {
-                cancelled: false,
-                error: Some(error),
-            });
+            let _ = deliver(
+                &sender,
+                AgentJobEvent::Finished {
+                    cancelled: false,
+                    error: Some(error),
+                },
+                cancel.as_ref(),
+            );
             return;
         }
     };
@@ -170,10 +213,14 @@ fn run_acp_session(
     if cancel.load(Ordering::Acquire) {
         terminate_child(&mut child);
         child_pid.store(0, Ordering::Release);
-        let _ = sender.send(AgentJobEvent::Finished {
-            cancelled: true,
-            error: None,
-        });
+        let _ = deliver(
+            &sender,
+            AgentJobEvent::Finished {
+                cancelled: true,
+                error: None,
+            },
+            cancel.as_ref(),
+        );
         return;
     }
 
@@ -182,10 +229,14 @@ fn run_acp_session(
         None => {
             terminate_child(&mut child);
             child_pid.store(0, Ordering::Release);
-            let _ = sender.send(AgentJobEvent::Finished {
-                cancelled: false,
-                error: Some("ACP process has no stdin".to_owned()),
-            });
+            let _ = deliver(
+                &sender,
+                AgentJobEvent::Finished {
+                    cancelled: false,
+                    error: Some("ACP process has no stdin".to_owned()),
+                },
+                cancel.as_ref(),
+            );
             return;
         }
     };
@@ -194,10 +245,14 @@ fn run_acp_session(
         None => {
             terminate_child(&mut child);
             child_pid.store(0, Ordering::Release);
-            let _ = sender.send(AgentJobEvent::Finished {
-                cancelled: false,
-                error: Some("ACP process has no stdout".to_owned()),
-            });
+            let _ = deliver(
+                &sender,
+                AgentJobEvent::Finished {
+                    cancelled: false,
+                    error: Some("ACP process has no stdout".to_owned()),
+                },
+                cancel.as_ref(),
+            );
             return;
         }
     };
@@ -225,6 +280,7 @@ fn run_acp_session(
             &mut child,
             &child_pid,
             &sender,
+            cancel.as_ref(),
             cancel.load(Ordering::Acquire),
             error,
         );
@@ -247,14 +303,25 @@ fn run_acp_session(
         Err(WaitError::Cancelled) => {
             terminate_child(&mut child);
             child_pid.store(0, Ordering::Release);
-            let _ = sender.send(AgentJobEvent::Finished {
-                cancelled: true,
-                error: None,
-            });
+            let _ = deliver(
+                &sender,
+                AgentJobEvent::Finished {
+                    cancelled: true,
+                    error: None,
+                },
+                cancel.as_ref(),
+            );
             return;
         }
         Err(WaitError::Failed(error)) => {
-            finish_with_error(&mut child, &child_pid, &sender, false, error);
+            finish_with_error(
+                &mut child,
+                &child_pid,
+                &sender,
+                cancel.as_ref(),
+                false,
+                error,
+            );
             return;
         }
     };
@@ -290,6 +357,7 @@ fn run_acp_session(
             &mut child,
             &child_pid,
             &sender,
+            cancel.as_ref(),
             cancel.load(Ordering::Acquire),
             error,
         );
@@ -312,14 +380,25 @@ fn run_acp_session(
         Err(WaitError::Cancelled) => {
             terminate_child(&mut child);
             child_pid.store(0, Ordering::Release);
-            let _ = sender.send(AgentJobEvent::Finished {
-                cancelled: true,
-                error: None,
-            });
+            let _ = deliver(
+                &sender,
+                AgentJobEvent::Finished {
+                    cancelled: true,
+                    error: None,
+                },
+                cancel.as_ref(),
+            );
             return;
         }
         Err(WaitError::Failed(error)) => {
-            finish_with_error(&mut child, &child_pid, &sender, false, error);
+            finish_with_error(
+                &mut child,
+                &child_pid,
+                &sender,
+                cancel.as_ref(),
+                false,
+                error,
+            );
             return;
         }
     };
@@ -334,6 +413,7 @@ fn run_acp_session(
             &mut child,
             &child_pid,
             &sender,
+            cancel.as_ref(),
             false,
             "session/new returned no sessionId".to_owned(),
         );
@@ -366,24 +446,31 @@ fn run_acp_session(
             &mut child,
             &child_pid,
             &sender,
+            cancel.as_ref(),
             cancel.load(Ordering::Acquire),
             error,
         );
         return;
     }
-    let _ = sender.send(AgentJobEvent::Notice(
-        "ACP prompt sent — live updates on Agents dashboard".to_owned(),
-    ));
+    let _ = deliver(
+        &sender,
+        AgentJobEvent::Notice("ACP prompt sent — live updates on Agents dashboard".to_owned()),
+        cancel.as_ref(),
+    );
 
     // Drain until prompt response, cancel, or process exit.
     loop {
         if cancel.load(Ordering::Acquire) {
             terminate_child(&mut child);
             child_pid.store(0, Ordering::Release);
-            let _ = sender.send(AgentJobEvent::Finished {
-                cancelled: true,
-                error: None,
-            });
+            let _ = deliver(
+                &sender,
+                AgentJobEvent::Finished {
+                    cancelled: true,
+                    error: None,
+                },
+                cancel.as_ref(),
+            );
             return;
         }
         match lines.recv_timeout(Duration::from_millis(200)) {
@@ -399,7 +486,7 @@ fn run_acp_session(
                                 value.get("params"),
                                 &mut stdin,
                                 &permission_rx,
-                                &cancel,
+                                cancel.as_ref(),
                                 &mut sequence,
                                 &sender,
                                 workspace_id,
@@ -409,13 +496,24 @@ fn run_acp_session(
                                 if error == "cancelled" {
                                     terminate_child(&mut child);
                                     child_pid.store(0, Ordering::Release);
-                                    let _ = sender.send(AgentJobEvent::Finished {
-                                        cancelled: true,
-                                        error: None,
-                                    });
+                                    let _ = deliver(
+                                        &sender,
+                                        AgentJobEvent::Finished {
+                                            cancelled: true,
+                                            error: None,
+                                        },
+                                        cancel.as_ref(),
+                                    );
                                     return;
                                 }
-                                finish_with_error(&mut child, &child_pid, &sender, false, error);
+                                finish_with_error(
+                                    &mut child,
+                                    &child_pid,
+                                    &sender,
+                                    cancel.as_ref(),
+                                    false,
+                                    error,
+                                );
                                 return;
                             }
                             continue;
@@ -429,6 +527,7 @@ fn run_acp_session(
                                 &mut sequence,
                                 &mut coalesce,
                                 &sender,
+                                cancel.as_ref(),
                                 workspace_id,
                                 &host_session_id,
                                 generation,
@@ -446,6 +545,7 @@ fn run_acp_session(
                                 &mut child,
                                 &child_pid,
                                 &sender,
+                                cancel.as_ref(),
                                 false,
                                 format!("ACP prompt error: {message}"),
                             );
@@ -455,6 +555,7 @@ fn run_acp_session(
                             &mut coalesce,
                             &mut sequence,
                             &sender,
+                            cancel.as_ref(),
                             workspace_id,
                             &host_session_id,
                             generation,
@@ -475,15 +576,26 @@ fn run_acp_session(
                         drop(stdin);
                         let _ = child.wait();
                         child_pid.store(0, Ordering::Release);
-                        let _ = sender.send(AgentJobEvent::Finished {
-                            cancelled: false,
-                            error: None,
-                        });
+                        let _ = deliver(
+                            &sender,
+                            AgentJobEvent::Finished {
+                                cancelled: false,
+                                error: None,
+                            },
+                            cancel.as_ref(),
+                        );
                         return;
                     }
                 }
                 Err(error) => {
-                    finish_with_error(&mut child, &child_pid, &sender, false, error);
+                    finish_with_error(
+                        &mut child,
+                        &child_pid,
+                        &sender,
+                        cancel.as_ref(),
+                        false,
+                        error,
+                    );
                     return;
                 }
             },
@@ -492,6 +604,7 @@ fn run_acp_session(
                     &mut coalesce,
                     &mut sequence,
                     &sender,
+                    cancel.as_ref(),
                     workspace_id,
                     &host_session_id,
                     generation,
@@ -499,19 +612,27 @@ fn run_acp_session(
                 );
                 if let Ok(Some(status)) = child.try_wait() {
                     child_pid.store(0, Ordering::Release);
-                    let _ = sender.send(AgentJobEvent::Finished {
-                        cancelled: false,
-                        error: Some(format!("ACP process exited early ({status})")),
-                    });
+                    let _ = deliver(
+                        &sender,
+                        AgentJobEvent::Finished {
+                            cancelled: false,
+                            error: Some(format!("ACP process exited early ({status})")),
+                        },
+                        cancel.as_ref(),
+                    );
                     return;
                 }
             }
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                 child_pid.store(0, Ordering::Release);
-                let _ = sender.send(AgentJobEvent::Finished {
-                    cancelled: false,
-                    error: Some("ACP process closed stdout before prompt finished".to_owned()),
-                });
+                let _ = deliver(
+                    &sender,
+                    AgentJobEvent::Finished {
+                        cancelled: false,
+                        error: Some("ACP process closed stdout before prompt finished".to_owned()),
+                    },
+                    cancel.as_ref(),
+                );
                 return;
             }
         }
@@ -579,30 +700,27 @@ fn handle_permission_request(
     let summary = format!("permission: {tool_title}");
 
     // Receipt + Needs You state for the dashboard.
-    if *sequence < MAX_EMITTED_EVENTS {
-        *sequence = sequence.saturating_add(1);
-        let event = AgentEvent {
-            workspace_id,
-            session_id: host_session_id.to_owned(),
-            generation,
-            sequence: *sequence,
-            timestamp_unix_ms: unix_now_ms(),
-            kind: AgentEventKind::Approval,
-            summary: truncate_summary(summary.clone()),
-            path: None,
-            git_object: None,
-            artifact_ref: None,
-            check_ok: None,
-            run_state: Some(AgentRunState::NeedsYou),
-            sensitive: false,
-        };
-        let _ = sender.send(AgentJobEvent::Event(event));
-    }
-    let _ = sender.send(AgentJobEvent::PermissionNeeded(PendingPermission {
-        request_id,
-        summary: truncate_summary(summary),
-        options: options.clone(),
-    }));
+    let _ = deliver_sequenced(
+        sequence,
+        sender,
+        cancel,
+        workspace_id,
+        host_session_id,
+        generation,
+        AgentEventKind::Approval,
+        summary.clone(),
+        Some(AgentRunState::NeedsYou),
+        None,
+    );
+    let _ = deliver(
+        sender,
+        AgentJobEvent::PermissionNeeded(PendingPermission {
+            request_id,
+            summary: truncate_summary(summary),
+            options: options.clone(),
+        }),
+        cancel,
+    );
 
     // Wait for the TUI (or cancel).
     let decision = loop {
@@ -640,26 +758,19 @@ fn handle_permission_request(
     }
 
     // After a selection, mark working again on the receipt.
-    if let Some(option_id) = selected_id
-        && *sequence < MAX_EMITTED_EVENTS
-    {
-        *sequence = sequence.saturating_add(1);
-        let event = AgentEvent {
+    if let Some(option_id) = selected_id {
+        let _ = deliver_sequenced(
+            sequence,
+            sender,
+            cancel,
             workspace_id,
-            session_id: host_session_id.to_owned(),
+            host_session_id,
             generation,
-            sequence: *sequence,
-            timestamp_unix_ms: unix_now_ms(),
-            kind: AgentEventKind::Notice,
-            summary: truncate_summary(format!("permission answered · {option_id}")),
-            path: None,
-            git_object: None,
-            artifact_ref: None,
-            check_ok: None,
-            run_state: Some(AgentRunState::Working),
-            sensitive: false,
-        };
-        let _ = sender.send(AgentJobEvent::Event(event));
+            AgentEventKind::Notice,
+            format!("permission answered · {option_id}"),
+            Some(AgentRunState::Working),
+            None,
+        );
     }
     Ok(())
 }
@@ -722,6 +833,7 @@ fn handle_notification(
     sequence: &mut u64,
     coalesce: &mut ChunkCoalesce,
     sender: &SyncSender<AgentJobEvent>,
+    cancel: &AtomicBool,
     workspace_id: u64,
     host_session_id: &str,
     generation: u64,
@@ -750,6 +862,7 @@ fn handle_notification(
                 extract_text(&update).unwrap_or_default(),
                 sequence,
                 sender,
+                cancel,
                 workspace_id,
                 host_session_id,
                 generation,
@@ -763,6 +876,7 @@ fn handle_notification(
                 extract_text(&update).unwrap_or_default(),
                 sequence,
                 sender,
+                cancel,
                 workspace_id,
                 host_session_id,
                 generation,
@@ -775,6 +889,7 @@ fn handle_notification(
                 coalesce,
                 sequence,
                 sender,
+                cancel,
                 workspace_id,
                 host_session_id,
                 generation,
@@ -789,6 +904,7 @@ fn handle_notification(
             emit_event(
                 sequence,
                 sender,
+                cancel,
                 workspace_id,
                 host_session_id,
                 generation,
@@ -805,6 +921,7 @@ fn handle_notification(
                 cwd,
                 sequence,
                 sender,
+                cancel,
                 workspace_id,
                 host_session_id,
                 generation,
@@ -815,6 +932,7 @@ fn handle_notification(
             emit_event(
                 sequence,
                 sender,
+                cancel,
                 workspace_id,
                 host_session_id,
                 generation,
@@ -834,6 +952,7 @@ fn emit_tool_update(
     cwd: &Path,
     sequence: &mut u64,
     sender: &SyncSender<AgentJobEvent>,
+    cancel: &AtomicBool,
     workspace_id: u64,
     host_session_id: &str,
     generation: u64,
@@ -857,6 +976,7 @@ fn emit_tool_update(
     emit_event(
         sequence,
         sender,
+        cancel,
         workspace_id,
         host_session_id,
         generation,
@@ -872,6 +992,7 @@ fn emit_tool_update(
         emit_event(
             sequence,
             sender,
+            cancel,
             workspace_id,
             host_session_id,
             generation,
@@ -957,6 +1078,7 @@ fn push_chunk(
     text: String,
     sequence: &mut u64,
     sender: &SyncSender<AgentJobEvent>,
+    cancel: &AtomicBool,
     workspace_id: u64,
     host_session_id: &str,
     generation: u64,
@@ -969,6 +1091,7 @@ fn push_chunk(
             coalesce,
             sequence,
             sender,
+            cancel,
             workspace_id,
             host_session_id,
             generation,
@@ -983,6 +1106,7 @@ fn push_chunk(
             coalesce,
             sequence,
             sender,
+            cancel,
             workspace_id,
             host_session_id,
             generation,
@@ -991,10 +1115,12 @@ fn push_chunk(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn flush_coalesce(
     coalesce: &mut ChunkCoalesce,
     sequence: &mut u64,
     sender: &SyncSender<AgentJobEvent>,
+    cancel: &AtomicBool,
     workspace_id: u64,
     host_session_id: &str,
     generation: u64,
@@ -1021,6 +1147,7 @@ fn flush_coalesce(
     emit_event(
         sequence,
         sender,
+        cancel,
         workspace_id,
         host_session_id,
         generation,
@@ -1039,6 +1166,7 @@ fn collapse_whitespace(text: &str) -> String {
 fn emit_event(
     sequence: &mut u64,
     sender: &SyncSender<AgentJobEvent>,
+    cancel: &AtomicBool,
     workspace_id: u64,
     host_session_id: &str,
     generation: u64,
@@ -1047,26 +1175,18 @@ fn emit_event(
     run_state: Option<AgentRunState>,
     path: Option<PathBuf>,
 ) {
-    if *sequence >= MAX_EMITTED_EVENTS {
-        return;
-    }
-    *sequence = sequence.saturating_add(1);
-    let event = AgentEvent {
+    let _ = deliver_sequenced(
+        sequence,
+        sender,
+        cancel,
         workspace_id,
-        session_id: host_session_id.to_owned(),
+        host_session_id,
         generation,
-        sequence: *sequence,
-        timestamp_unix_ms: unix_now_ms(),
         kind,
-        summary: truncate_summary(summary),
-        path,
-        git_object: None,
-        artifact_ref: None,
-        check_ok: None,
+        summary,
         run_state,
-        sensitive: false,
-    };
-    let _ = sender.send(AgentJobEvent::Event(event));
+        path,
+    );
 }
 
 fn extract_text(value: &Value) -> Option<String> {
@@ -1196,6 +1316,7 @@ fn wait_for_response(
                         sequence,
                         &mut coalesce,
                         sender,
+                        cancel,
                         workspace_id,
                         host_session_id,
                         generation,
@@ -1233,15 +1354,20 @@ fn finish_with_error(
     child: &mut Child,
     child_pid: &AtomicU32,
     sender: &SyncSender<AgentJobEvent>,
+    cancel: &AtomicBool,
     cancelled: bool,
     error: String,
 ) {
     terminate_child(child);
     child_pid.store(0, Ordering::Release);
-    let _ = sender.send(AgentJobEvent::Finished {
-        cancelled,
-        error: if cancelled { None } else { Some(error) },
-    });
+    let _ = deliver(
+        sender,
+        AgentJobEvent::Finished {
+            cancelled,
+            error: if cancelled { None } else { Some(error) },
+        },
+        cancel,
+    );
 }
 
 fn terminate_child(child: &mut Child) {

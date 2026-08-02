@@ -10,17 +10,90 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError};
+use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use crate::agent::{AgentCoordinator, FakeAgent};
 use crate::agent_contract::{
-    AgentAuthority, AgentEvent, AgentRunState, PathScope, WorkPacket, WorktreeBinding, unix_now_ms,
+    AgentAuthority, AgentEvent, AgentEventKind, AgentRunState, PathScope, WorkPacket,
+    WorktreeBinding, unix_now_ms,
 };
 
 pub(crate) const EVENT_CAPACITY: usize = 64;
 const FAKE_STEP_PAUSE: Duration = Duration::from_millis(40);
+/// Sleep while waiting for UI to drain the channel (hard events only).
+const HARD_SEND_SPIN: Duration = Duration::from_millis(1);
+
+/// Soft = drop if UI is behind; hard = wait for a slot (unless cancelled).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SendPriority {
+    Soft,
+    Hard,
+}
+
+/// Classify job events for backpressure. Kill path must never block on soft noise.
+pub(crate) fn job_event_priority(event: &AgentJobEvent) -> SendPriority {
+    match event {
+        AgentJobEvent::Finished { .. } | AgentJobEvent::PermissionNeeded(_) => SendPriority::Hard,
+        AgentJobEvent::Notice(_) => SendPriority::Soft,
+        AgentJobEvent::Event(event) => match event.kind {
+            AgentEventKind::ReviewReady | AgentEventKind::Approval => SendPriority::Hard,
+            _ if matches!(
+                event.run_state,
+                Some(AgentRunState::Review | AgentRunState::NeedsYou)
+            ) =>
+            {
+                SendPriority::Hard
+            }
+            _ => SendPriority::Soft,
+        },
+    }
+}
+
+/// Non-blocking soft drop / hard wait send. Returns whether the event was queued.
+///
+/// Hard sends spin (not block indefinitely) and abort if `cancel` is set so
+/// process kill never stalls on a full channel.
+pub(crate) fn send_job_event(
+    sender: &SyncSender<AgentJobEvent>,
+    event: AgentJobEvent,
+    priority: SendPriority,
+    cancel: Option<&AtomicBool>,
+) -> bool {
+    match priority {
+        SendPriority::Soft => match sender.try_send(event) {
+            Ok(()) => true,
+            Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => false,
+        },
+        SendPriority::Hard => {
+            let mut event = event;
+            loop {
+                match sender.try_send(event) {
+                    Ok(()) => return true,
+                    Err(TrySendError::Disconnected(_)) => return false,
+                    Err(TrySendError::Full(returned)) => {
+                        if cancel.is_some_and(|flag| flag.load(Ordering::Acquire)) {
+                            return false;
+                        }
+                        thread::sleep(HARD_SEND_SPIN);
+                        event = returned;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Convenience: priority from the event itself.
+pub(crate) fn send_job_event_auto(
+    sender: &SyncSender<AgentJobEvent>,
+    event: AgentJobEvent,
+    cancel: Option<&AtomicBool>,
+) -> bool {
+    let priority = job_event_priority(&event);
+    send_job_event(sender, event, priority, cancel)
+}
 
 /// Events produced by a background agent job for App admission.
 #[derive(Debug)]
@@ -197,28 +270,46 @@ fn run_fake(
     let events = agent.materialize(workspace_id, &session_id, generation, start);
     for event in events {
         if cancel.load(Ordering::Acquire) {
-            let _ = sender.send(AgentJobEvent::Finished {
-                cancelled: true,
-                error: None,
-            });
+            let _ = send_job_event_auto(
+                &sender,
+                AgentJobEvent::Finished {
+                    cancelled: true,
+                    error: None,
+                },
+                Some(&cancel),
+            );
             return;
         }
-        if sender.send(AgentJobEvent::Event(event)).is_err() {
+        // Fake script uses fixed sequences — never soft-drop events.
+        if !send_job_event(
+            &sender,
+            AgentJobEvent::Event(event),
+            SendPriority::Hard,
+            Some(&cancel),
+        ) {
             return;
         }
         thread::sleep(FAKE_STEP_PAUSE);
     }
     if cancel.load(Ordering::Acquire) {
-        let _ = sender.send(AgentJobEvent::Finished {
-            cancelled: true,
-            error: None,
-        });
+        let _ = send_job_event_auto(
+            &sender,
+            AgentJobEvent::Finished {
+                cancelled: true,
+                error: None,
+            },
+            Some(&cancel),
+        );
         return;
     }
-    let _ = sender.send(AgentJobEvent::Finished {
-        cancelled: false,
-        error: None,
-    });
+    let _ = send_job_event_auto(
+        &sender,
+        AgentJobEvent::Finished {
+            cancelled: false,
+            error: None,
+        },
+        Some(&cancel),
+    );
 }
 
 /// Build a review-oriented work packet for the active workspace goal.
@@ -354,6 +445,72 @@ mod tests {
     use super::*;
     use crate::agent::AgentCoordinator;
     use std::time::Duration;
+
+    #[test]
+    fn soft_events_drop_when_channel_full() {
+        let (tx, rx) = mpsc::sync_channel(1);
+        assert!(send_job_event(
+            &tx,
+            AgentJobEvent::Notice("one".to_owned()),
+            SendPriority::Soft,
+            None,
+        ));
+        // Channel full: soft drop.
+        assert!(!send_job_event(
+            &tx,
+            AgentJobEvent::Notice("two".to_owned()),
+            SendPriority::Soft,
+            None,
+        ));
+        // Drain and hard finish still works.
+        assert!(matches!(rx.try_recv(), Ok(AgentJobEvent::Notice(_))));
+        assert!(send_job_event(
+            &tx,
+            AgentJobEvent::Finished {
+                cancelled: false,
+                error: None,
+            },
+            SendPriority::Hard,
+            None,
+        ));
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(AgentJobEvent::Finished {
+                cancelled: false,
+                error: None
+            })
+        ));
+    }
+
+    #[test]
+    fn hard_event_waits_for_slot_unless_cancelled() {
+        let (tx, rx) = mpsc::sync_channel(1);
+        assert!(send_job_event(
+            &tx,
+            AgentJobEvent::Notice("fill".to_owned()),
+            SendPriority::Soft,
+            None,
+        ));
+        let cancel = Arc::new(AtomicBool::new(false));
+        let tx2 = tx.clone();
+        let cancel2 = Arc::clone(&cancel);
+        let handle = thread::spawn(move || {
+            send_job_event(
+                &tx2,
+                AgentJobEvent::Finished {
+                    cancelled: false,
+                    error: None,
+                },
+                SendPriority::Hard,
+                Some(cancel2.as_ref()),
+            )
+        });
+        thread::sleep(Duration::from_millis(20));
+        // Free a slot so hard send completes.
+        let _ = rx.try_recv();
+        assert!(handle.join().unwrap());
+        assert!(matches!(rx.try_recv(), Ok(AgentJobEvent::Finished { .. })));
+    }
 
     #[test]
     fn fake_runtime_events_admit_to_review() {

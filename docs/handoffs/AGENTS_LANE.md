@@ -76,8 +76,7 @@ Ranked for **tonight’s launch**: ship small wins that keep SSH/iPad responsive
 
 ### Recommendation (pick for next code turn)
 
-**#1 + #2 + #4 done** (batch status + paint throttle; dashboard cache; quieter handoff).  
-Next optional: **#3** ACP channel backpressure.
+**#1 + #2 + #3 + #4 done** (batch status; dashboard cache; ACP backpressure; quieter handoff).
 
 ## Do not
 
@@ -105,6 +104,7 @@ cargo test --all-targets --all-features --locked
 
 ## Log
 
+- **2026-08-01:** #3 ACP backpressure (soft drop / hard wait; sequence on successful queue only).
 - **2026-08-01:** #2 dashboard paint cache (key = receipt seq + state + height + permission).
 - **2026-08-01:** Implemented #1+#4: agent batch status + background redraw throttle; quieter review handoff.
 - **2026-08-01:** Performance backlog + compaction first-prompt planted (throttle redraw, cheap dashboard, quieter handoff).
