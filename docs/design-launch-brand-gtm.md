@@ -104,7 +104,7 @@ Prefer **`docs/STATUS.md`** over checklist rows when they disagree. As of 2026-0
 | 4a | **Landing README ≡ `git show $PIN:README.md` for launch day** | Essential controls SoT is the **tag tree**, not `main`. Diff default-branch table against pin README; **reject tip-only keys**. For pin `v0.2.2`: include pad + `Esc w a`/`x`/`D`; **exclude** `Esc w C`/`Y` (checklist fan-out) and any other STATUS post-tag chords. Still refuse “autonomous coding agent” overclaim. |
 | 5 | Tonight site = **GitHub README + Release notes**; Pages optional 48h | Sincere users start at the repo. |
 | 6 | **Demo GIF P0**, recorded from **pin binary only** | Shareability without lying. Never record from dirty tip. |
-| 7 | Visual system = **web/social approximation** of Terminal.app **Pro ANSI** used in `src/render.rs` | Brand feels like the product; hex tokens are not literal Rust constants. |
+| 7 | Visual system = dark Pro-adjacent surfaces + **indigo `#6366F1` primary brand accent** (not product ANSI cyan) | Marketing identity distinct from Terminal Pro cyan chrome; hex tokens are brand tokens. |
 | 8 | Show HN + r/rust first; r/ipad + Blink second; PH deferred | Sincere technical audience first. |
 | 9 | Handles: personal amplify for tonight; `@wscrpt` later if free | **Will 2026-08-01:** no X brand-account hunt tonight. |
 | 10 | **Honesty section** is first-class launch surface | Filters wrong audience. |
@@ -169,7 +169,7 @@ Prefer **`docs/STATUS.md`** over checklist rows when they disagree. As of 2026-0
 | `bg-elevated` | `#1A1A1C` | Cards / code blocks on web only |
 | `fg` | `#F5F5F7` | Near-white body (≈ Ansi 255 “near pure white”) |
 | `fg-muted` | `#A1A1A6` | Secondary (≈ Ansi 245) |
-| `accent-cyan` | `#00FFFF` | Primary brand accent — **aligned with Ansi 51** |
+| `accent-indigo` | `#6366F1` | **Primary brand accent** (marketing mark / OG / style bible). Product TUI may still use Pro ANSI cyan in-editor — that is not the public brand accent. |
 | `accent-magenta` | `#FF00FF` | Action-layer / keyword accent — ≈ Ansi 201 |
 | `accent-green` | `#00FF00` | Success / install — ≈ Ansi 46 |
 | `accent-amber` | `#FFD700` | Warm caution / EDIT* marketing accent — closer to Ansi **220/226** than soft One Dark gold; **not** Ansi 58 (edit row lift) |
@@ -188,7 +188,7 @@ Prefer **`docs/STATUS.md`** over checklist rows when they disagree. As of 2026-0
 
 - Canvas `#0B0B0C` (marketing bg).
 - Mono lowercase **`w`** in `#F5F5F7`.
-- Left cyan `#00FFFF` **action chevron** (Esc prefix), stroke thick enough to read at **16px** and **32px** (prefer ≥22–28 viewBox units on 512 canvas; test mark-16 and mark-32 before ship).
+- Left indigo `#6366F1` **action chevron** (Esc prefix), stroke thick enough to read at **16px** and **32px** (prefer ≥22–28 viewBox units on 512 canvas; test mark-16 and mark-32 before ship).
 - No periods, 3D, gradients, or AI “play” triangle.
 - Magenta baseline tick **optional**; drop if noisy at 16px.
 
@@ -253,7 +253,7 @@ OG: compose in any editor (Figma/Preview/ImageMagick) on `#0B0B0C` with mark + `
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="wscrpt">
   <rect width="512" height="512" fill="#0B0B0C"/>
   <!-- chevron: keep stroke ≥ ~28 on 512 so 16px raster still reads -->
-  <path d="M150 176 L108 256 L150 336" fill="none" stroke="#00FFFF"
+  <path d="M150 176 L108 256 L150 336" fill="none" stroke="#6366F1"
         stroke-width="28" stroke-linecap="square" stroke-linejoin="miter"/>
   <!-- replace <text> with outlined paths in final asset -->
   <text x="300" y="310" text-anchor="middle"

@@ -21,7 +21,7 @@ cd /tmp/wscrpt-$PIN && cargo build --release
 
 ## Export marks
 
-Esc-w: cyan action chevron + mono `w` on `#0B0B0C`.
+Esc-w: indigo (`#6366F1`) action chevron + mono `w` on `#0B0B0C`.
 
 ```sh
 # Regenerated with docs/assets/generate_mark.py (Pillow)
