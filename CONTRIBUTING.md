@@ -8,6 +8,8 @@ Thanks for helping. wscrpt is intentionally small: a remote-first terminal edito
 2. Prefer fixing reliability, safety, or the remote/iPad route over adding surface area.
 3. Do not reintroduce removed 0.2 capabilities (embedded terminals, multi-file replace, LSP rename/code actions, in-editor Git mutation) without an explicit design discussion and release-note plan.
 
+**Automated assistants (any model/harness):** read [AGENTS.md](AGENTS.md) first, then [docs/MAINTAINER_OPS.md](docs/MAINTAINER_OPS.md) for owner vs assistant boundaries.
+
 ## Development
 
 **Code map:** [docs/CONTRIBUTOR_MAP.md](docs/CONTRIBUTOR_MAP.md) — where to edit keybindings, save, search, tasks, Git, LSP, render, session, recovery, and CLI without reading all of `src/app.rs`.
