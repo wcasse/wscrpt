@@ -157,10 +157,7 @@ fn run_acp_session(
 
     if let Some(title_brief) = request.sticky_brief.as_ref() {
         let title = title_brief.lines().next().unwrap_or("sticky").to_owned();
-        let artifact = request
-            .sticky_id
-            .as_deref()
-            .map(sticky_artifact_ref);
+        let artifact = request.sticky_id.as_deref().map(sticky_artifact_ref);
         let _ = emit(
             AgentEventKind::Notice,
             format!("sticky brief: {title}"),
@@ -385,7 +382,8 @@ fn run_acp_session(
                 notices += 1;
                 let _ = emit(
                     AgentEventKind::Approval,
-                    "agent requested permission — cancelled (Needs You; no silent grant)".to_owned(),
+                    "agent requested permission — cancelled (Needs You; no silent grant)"
+                        .to_owned(),
                     Some(AgentRunState::NeedsYou),
                     None,
                     None,
@@ -420,10 +418,7 @@ fn run_acp_session(
                     }
                 }
                 "agent_message_chunk" => {
-                    if let Some(text) = update
-                        .pointer("/content/text")
-                        .and_then(Value::as_str)
-                    {
+                    if let Some(text) = update.pointer("/content/text").and_then(Value::as_str) {
                         agent_text.push_str(text);
                         if agent_text.len() > 8 * 1024 {
                             agent_text.truncate(8 * 1024);
@@ -437,10 +432,7 @@ fn run_acp_session(
                         .and_then(Value::as_str)
                         .or_else(|| update.get("kind").and_then(Value::as_str))
                         .unwrap_or("tool");
-                    let status = update
-                        .get("status")
-                        .and_then(Value::as_str)
-                        .unwrap_or("");
+                    let status = update.get("status").and_then(Value::as_str).unwrap_or("");
                     let summary = if status.is_empty() {
                         format!("tool: {title}")
                     } else {
@@ -458,20 +450,16 @@ fn run_acp_session(
                         && status == "completed"
                         && path.as_ref().is_some_and(|p| p.is_relative())
                     {
-                        let _ = emit(
-                            AgentEventKind::PathTouched,
-                            summary,
-                            None,
-                            None,
-                            path,
-                            None,
-                        );
+                        let _ = emit(AgentEventKind::PathTouched, summary, None, None, path, None);
                     } else {
                         let _ = emit(AgentEventKind::Notice, summary, None, None, None, None);
                     }
                 }
-                "available_commands_update" | "session_info_update" | "usage_update"
-                | "agent_thought_chunk" | "user_message_chunk" => {}
+                "available_commands_update"
+                | "session_info_update"
+                | "usage_update"
+                | "agent_thought_chunk"
+                | "user_message_chunk" => {}
                 other if !other.is_empty() && notices < MAX_RECEIPT_NOTICES => {
                     notices += 1;
                     let _ = emit(

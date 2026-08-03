@@ -996,9 +996,10 @@ pub fn resolve_checklist_done_indices(body: &str, item_texts: &[String]) -> Vec<
         } else {
             wanted.as_str()
         };
-        if let Some(item) = open.iter().find(|item| {
-            !claimed.contains(&item.line_index) && item.text == target
-        }) {
+        if let Some(item) = open
+            .iter()
+            .find(|item| !claimed.contains(&item.line_index) && item.text == target)
+        {
             claimed.insert(item.line_index);
             indices.push(item.line_index);
         }
@@ -1141,6 +1142,13 @@ pub const STICKY_PAD_HEIGHT: usize = 12;
 /// Default body rows for preferred card height (height − chrome).
 pub const STICKY_PAD_BODY_ROWS: usize = StickyPad::body_rows_for_height(STICKY_PAD_HEIGHT);
 
+/// One entry in the pad's cycle roster (id + label for the tab strip).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StickyRosterEntry {
+    pub id: String,
+    pub title: String,
+}
+
 /// In-memory floating sticky notepad. Storage is still [`StickyLibrary`].
 #[derive(Clone, Debug)]
 pub struct StickyPad {
@@ -1155,8 +1163,8 @@ pub struct StickyPad {
     pub scroll: usize,
     /// Last known painted body rows (kept in sync with card height).
     pub viewport_body_rows: usize,
-    /// Active non-archived note ids for Ctrl-P/N cycling (personal + team).
-    pub roster: Vec<String>,
+    /// Active non-archived notes for Ctrl-P/N cycling and the tab strip.
+    pub roster: Vec<StickyRosterEntry>,
     pub roster_index: usize,
 }
 
@@ -1210,21 +1218,16 @@ impl StickyPad {
         self.visible && self.focused
     }
 
-    /// Toggle show/hide. Showing focuses; hiding saves first.
+    /// Toggle show/hide. Showing focuses; hiding always saves first.
+    ///
+    /// Visibility is a pure toggle: any visible state (focused or glanceable)
+    /// closes the pad. Re-open with the same chord to type again.
     pub fn toggle(&mut self, library: &StickyLibrary) -> Result<&'static str, StickyError> {
-        if self.visible && self.focused {
+        if self.visible {
             self.save_if_dirty(library)?;
             self.visible = false;
             self.focused = false;
             Ok("Sticky pad hidden")
-        } else if self.visible {
-            // Visible-but-unfocused (session restore or Esc unfocus): load a note
-            // if the shell is empty so typing works immediately.
-            if self.note.is_none() {
-                self.open_most_recent_or_blank(library)?;
-            }
-            self.focused = true;
-            Ok("Sticky pad focused — type to jot · Esc returns to editor")
         } else {
             self.refresh_roster(library);
             if self.note.is_none() {
@@ -1261,7 +1264,7 @@ impl StickyPad {
         self.focused = true;
         self.refresh_roster(library);
         if let Some(id) = self.note.as_ref().map(|n| n.id.clone())
-            && let Some(index) = self.roster.iter().position(|r| r == &id)
+            && let Some(index) = self.roster.iter().position(|r| r.id == id)
         {
             self.roster_index = index;
         }
@@ -1280,10 +1283,19 @@ impl StickyPad {
             .notes
             .into_iter()
             .filter(|note| !note.archived)
-            .map(|note| note.id)
+            .map(|note| StickyRosterEntry {
+                id: note.id,
+                title: note.title,
+            })
             .collect();
+        // Prefer live title from the open note (may be dirty / unsaved).
+        if let Some(note) = self.note.as_ref()
+            && let Some(entry) = self.roster.iter_mut().find(|r| r.id == note.id)
+        {
+            entry.title = note.title.clone();
+        }
         if let Some(id) = self.note.as_ref().map(|n| n.id.as_str()) {
-            self.roster_index = self.roster.iter().position(|r| r == id).unwrap_or(0);
+            self.roster_index = self.roster.iter().position(|r| r.id == id).unwrap_or(0);
         } else {
             self.roster_index = 0;
         }
@@ -1291,7 +1303,7 @@ impl StickyPad {
 
     fn open_most_recent_or_blank(&mut self, library: &StickyLibrary) -> Result<(), StickyError> {
         self.refresh_roster(library);
-        if let Some(id) = self.roster.first().cloned() {
+        if let Some(id) = self.roster.first().map(|r| r.id.clone()) {
             self.load_id(library, &id)?;
         } else {
             // Blank draft — materializes on first save.
@@ -1333,7 +1345,7 @@ impl StickyPad {
         }
         let len = self.roster.len() as isize;
         let next = (self.roster_index as isize + delta).rem_euclid(len) as usize;
-        let id = self.roster[next].clone();
+        let id = self.roster[next].id.clone();
         self.load_id(library, &id)?;
         self.roster_index = next;
         Ok(())
@@ -1350,9 +1362,17 @@ impl StickyPad {
         // First save of a draft: ensure file exists via save (creates path).
         library.save(note)?;
         // Keep roster in sync for brand-new ids.
-        if !self.roster.iter().any(|id| id == &note.id) {
-            self.roster.insert(0, note.id.clone());
+        if !self.roster.iter().any(|entry| entry.id == note.id) {
+            self.roster.insert(
+                0,
+                StickyRosterEntry {
+                    id: note.id.clone(),
+                    title: note.title.clone(),
+                },
+            );
             self.roster_index = 0;
+        } else if let Some(entry) = self.roster.iter_mut().find(|r| r.id == note.id) {
+            entry.title = note.title.clone();
         }
         self.dirty = false;
         Ok(())
@@ -1370,7 +1390,7 @@ impl StickyPad {
         self.cursor = 0;
         self.scroll = 0;
         self.refresh_roster(library);
-        if let Some(next) = self.roster.first().cloned() {
+        if let Some(next) = self.roster.first().map(|r| r.id.clone()) {
             self.load_id(library, &next)?;
         } else {
             self.visible = false;
@@ -1388,7 +1408,7 @@ impl StickyPad {
         self.dirty = false;
         self.note = None;
         self.refresh_roster(library);
-        if let Some(next) = self.roster.first().cloned() {
+        if let Some(next) = self.roster.first().map(|r| r.id.clone()) {
             self.load_id(library, &next)?;
         } else {
             self.visible = false;
@@ -1521,11 +1541,7 @@ impl StickyPad {
     /// Interior body rows for a full card height (top + title + body + footer + bottom).
     pub const fn body_rows_for_height(height: usize) -> usize {
         let rows = height.saturating_sub(4);
-        if rows < 3 {
-            3
-        } else {
-            rows
-        }
+        if rows < 3 { 3 } else { rows }
     }
 
     const fn default_body_rows() -> usize {
@@ -1553,16 +1569,13 @@ impl StickyPad {
     /// Build paint lines for the card interior (excluding outer border row math).
     pub fn view_lines(&self, body_rows: usize, width: usize) -> Vec<StickyPadLine> {
         let mut lines = Vec::new();
-        let dirty = if self.dirty { "*" } else { "" };
-        let focus = if self.focused { "· EDIT" } else { "" };
         let index = if self.roster.is_empty() {
             String::new()
         } else {
             format!(" {}/{}", self.roster_index + 1, self.roster.len())
         };
-        let title = format!(" ☰ {}{}{} ", self.title(), dirty, focus);
         lines.push(StickyPadLine {
-            text: truncate_pad(&title, width),
+            text: truncate_pad(&self.tab_strip(width), width),
             kind: StickyPadLineKind::Title,
         });
 
@@ -1602,15 +1615,76 @@ impl StickyPad {
         }
 
         let footer = if self.focused {
-            format!(" Esc editor · ^P/^N notes · ^S save{index} ")
+            format!(" Esc editor · ^P/^N tabs · ^S save{index} ")
         } else {
-            format!(" Esc w k focus · Esc w K new{index} ")
+            format!(" Esc w k hide · Esc w K new{index} ")
         };
         lines.push(StickyPadLine {
             text: truncate_pad(&footer, width),
             kind: StickyPadLineKind::Footer,
         });
         lines
+    }
+
+    /// Compact sticky tab strip (buffer-header style), fit to card width.
+    ///
+    /// Active note is bracketed; overflow uses ‹ › like the file header.
+    fn tab_strip(&self, width: usize) -> String {
+        let dirty = if self.dirty { "*" } else { "" };
+        let focus = if self.focused { " EDIT" } else { "" };
+
+        // Single note (or draft not yet in roster): simple title chrome.
+        if self.roster.len() <= 1 {
+            return format!(" ☰ {}{}{} ", self.title(), dirty, focus);
+        }
+
+        let labels: Vec<String> = self
+            .roster
+            .iter()
+            .enumerate()
+            .map(|(i, entry)| {
+                let title = short_sticky_title(&entry.title, 10);
+                let active = i == self.roster_index;
+                let mark = if active { dirty } else { "" };
+                if active {
+                    format!("[{}:{}{}]", i + 1, title, mark)
+                } else {
+                    format!("{}:{}", i + 1, title)
+                }
+            })
+            .collect();
+
+        let window = sticky_tab_window(
+            &labels
+                .iter()
+                .map(|label| display_width(label))
+                .collect::<Vec<_>>(),
+            self.roster_index,
+            width.saturating_sub(2), // leading/trailing spaces
+        );
+        let mut out = String::from(" ");
+        if window.start > 0 {
+            out.push('‹');
+        }
+        for (i, label) in labels
+            .iter()
+            .enumerate()
+            .skip(window.start)
+            .take(window.end.saturating_sub(window.start))
+        {
+            if i > window.start || window.start > 0 {
+                out.push(' ');
+            }
+            out.push_str(label);
+        }
+        if window.end < labels.len() {
+            out.push('›');
+        }
+        if !focus.is_empty() && display_width(&out) + focus.len() < width {
+            out.push_str(focus);
+        }
+        out.push(' ');
+        out
     }
 
     /// Compute top-right frame inside the editor content band.
@@ -1656,6 +1730,56 @@ fn truncate_pad(text: &str, width: usize) -> String {
         used += 1;
     }
     out
+}
+
+fn display_width(text: &str) -> usize {
+    text.chars()
+        .map(|ch| unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0))
+        .sum()
+}
+
+fn short_sticky_title(title: &str, max_chars: usize) -> String {
+    let trimmed = title.trim();
+    if trimmed.is_empty() {
+        return "note".to_owned();
+    }
+    let chars: Vec<char> = trimmed.chars().collect();
+    if chars.len() <= max_chars {
+        return chars.into_iter().collect();
+    }
+    let keep = max_chars.saturating_sub(1).max(1);
+    let mut out: String = chars.into_iter().take(keep).collect();
+    out.push('…');
+    out
+}
+
+/// Keep the active sticky tab visible; expand left/right while it fits.
+fn sticky_tab_window(
+    label_widths: &[usize],
+    active: usize,
+    available: usize,
+) -> std::ops::Range<usize> {
+    if label_widths.is_empty() || available == 0 {
+        return 0..0;
+    }
+    let active = active.min(label_widths.len() - 1);
+    let mut start = active;
+    let mut end = active + 1;
+
+    let width_of = |start: usize, end: usize| -> usize {
+        let tabs: usize = label_widths[start..end].iter().sum();
+        let gaps = end.saturating_sub(start).saturating_sub(1);
+        let overflow = usize::from(start > 0) + usize::from(end < label_widths.len());
+        tabs + gaps + overflow
+    };
+
+    while start > 0 && width_of(start - 1, end) <= available {
+        start -= 1;
+    }
+    while end < label_widths.len() && width_of(start, end + 1) <= available {
+        end += 1;
+    }
+    start..end
 }
 
 fn char_to_byte(text: &str, char_index: usize) -> usize {
@@ -1951,5 +2075,68 @@ mod tests {
     fn receipt_log_empty_bullets_is_noop() {
         let body = "keep me";
         assert_eq!(append_receipt_log(body, "x", &[]), body);
+    }
+
+    #[test]
+    fn pad_toggle_hides_when_visible_even_if_unfocused() {
+        let (_workspace, _state, library) = library();
+        let mut pad = StickyPad::default();
+        pad.show_new(&library, "One", StickyAnchor::Workspace)
+            .unwrap();
+        assert!(pad.visible && pad.focused);
+
+        // Glanceable state (Esc from focused pad).
+        pad.unfocus_save(&library).unwrap();
+        assert!(pad.visible && !pad.focused);
+
+        let msg = pad.toggle(&library).unwrap();
+        assert!(!pad.visible);
+        assert!(!pad.focused);
+        assert!(msg.contains("hidden"), "{msg}");
+
+        // Re-open is focused again.
+        let msg = pad.toggle(&library).unwrap();
+        assert!(pad.visible && pad.focused);
+        assert!(msg.contains("open"), "{msg}");
+    }
+
+    #[test]
+    fn pad_tab_strip_shows_active_and_neighbors() {
+        let (_workspace, _state, library) = library();
+        let mut pad = StickyPad::default();
+        pad.show_new(&library, "Alpha", StickyAnchor::Workspace)
+            .unwrap();
+        pad.save_if_dirty(&library).unwrap();
+        pad.show_new(&library, "Beta Ship", StickyAnchor::Workspace)
+            .unwrap();
+        pad.save_if_dirty(&library).unwrap();
+        pad.show_new(&library, "Gamma", StickyAnchor::Workspace)
+            .unwrap();
+        pad.save_if_dirty(&library).unwrap();
+        pad.refresh_roster(&library);
+        assert!(pad.roster.len() >= 3, "roster {:?}", pad.roster);
+
+        let lines = pad.view_lines(4, 40);
+        let title = &lines[0].text;
+        assert!(
+            title.contains('[') && title.contains(']'),
+            "active tab should be bracketed: {title:?}"
+        );
+        assert!(
+            title.contains("Gamma") || title.contains("1:") || title.contains("2:"),
+            "tab strip should show numbered labels: {title:?}"
+        );
+        let footer = &lines.last().unwrap().text;
+        assert!(
+            footer.contains("^P/^N") || footer.contains("tabs"),
+            "focused footer should mention tab cycle: {footer:?}"
+        );
+    }
+
+    #[test]
+    fn short_sticky_title_truncates() {
+        assert_eq!(short_sticky_title("short", 10), "short");
+        assert_eq!(short_sticky_title("abcdefghijk", 6), "abcde…");
+        assert_eq!(short_sticky_title("   ", 4), "note");
     }
 }

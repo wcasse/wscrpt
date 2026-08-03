@@ -10450,7 +10450,9 @@ impl App {
         match self.sticky_pad.unfocus_save(&library) {
             Ok(()) => {
                 self.ui.full_redraw = true;
-                self.status("Sticky pad unfocused — Esc w k to hide or re-focus");
+                self.status(
+                    "Sticky pad unfocused — Esc w k hides · Esc w k again re-opens focused",
+                );
             }
             Err(error) => {
                 // focused remains true when save failed (unfocus_save bails first).
@@ -10746,9 +10748,9 @@ impl App {
         let sticky_attach = self.sticky_pad_attach();
         let sticky_title = sticky_attach.as_ref().map(|s| s.title.clone());
         let sticky_id = sticky_attach.as_ref().map(|s| s.id.clone());
-        let sticky_brief = sticky_attach.as_ref().map(|s| {
-            crate::agent_runtime::format_sticky_brief(s)
-        });
+        let sticky_brief = sticky_attach
+            .as_ref()
+            .map(crate::agent_runtime::format_sticky_brief);
 
         let session = crate::agent_runtime::new_session_id();
         let workspace_id = self.agent.coordinator.workspace_id();
@@ -12487,6 +12489,17 @@ mod tests {
             assert!(!app.sticky_pad_visible(), "Esc w k toggles pad closed");
             assert!(app.agent_dashboard_visible());
 
+            // Re-open, unfocus (glanceable), then Esc w k must hide without re-focusing.
+            app.execute_action(Action::Stickies);
+            assert!(app.sticky_pad_visible());
+            assert!(app.sticky_pad_focused());
+            app.sticky_pad.focused = false;
+            app.execute_action(Action::Stickies);
+            assert!(
+                !app.sticky_pad_visible(),
+                "Esc w k hides glanceable (unfocused) pad in one step"
+            );
+
             app.execute_action(Action::AgentDashboard);
             assert!(!app.agent_dashboard_visible());
         });
@@ -12607,7 +12620,6 @@ mod tests {
         });
     }
 
-
     #[test]
     fn ship_sticky_checklist_apply_survives_body_edit() {
         with_sticky_state_home(|| {
@@ -12627,8 +12639,7 @@ mod tests {
             )));
             // Move cursor to start of body and insert a line.
             if let Some(note) = app.sticky_pad.note.as_mut() {
-                note.body_markdown =
-                    format!("- [ ] inserted\n{}", note.body_markdown);
+                note.body_markdown = format!("- [ ] inserted\n{}", note.body_markdown);
                 app.sticky_pad.dirty = true;
                 app.sticky_pad.cursor = 0;
             }

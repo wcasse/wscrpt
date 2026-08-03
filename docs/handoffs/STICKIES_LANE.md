@@ -16,8 +16,9 @@ Sister lanes: **AGENTS** owns the bottom Agents dashboard and run loop. **SHIP**
 ## Product truth (Stickies) — from last known ship
 
 - Floating **top-right notepad** (Mac Stickies–style), not “open another buffer” by default.
-- Keys: `Esc w k` toggle pad · `Esc w K` new personal note.
-- Focused pad: type freely (including `[` / `]`); **Ctrl-P / Ctrl-N** cycle notes; **Ctrl-S** save · **Ctrl-A** archive · **Ctrl-X** delete; **Esc** unfocus (save-safe); **Ctrl-K** / Alt-chords enter Action like the editor.
+- Keys: `Esc w k` pure show/hide toggle · `Esc w K` new personal note.
+- Focused pad: type freely (including `[` / `]`); **Ctrl-P / Ctrl-N** cycle notes (tab strip); **Ctrl-S** save · **Ctrl-A** archive · **Ctrl-X** delete; **Esc** unfocus (pad stays glanceable); **Esc w k** hides from focused or glanceable; **Ctrl-K** / Alt-chords enter Action like the editor.
+- Multi-note chrome: title row is a compact tab strip (`[n:title*]` active, `‹ ›` overflow).
 - Storage: Markdown + TOML front matter; personal XDG + team `.wscrpt/stickies/`.
 - Geometry/visibility session-local (`sticky_pad_visible`); do not commit pad geometry into the repo.
 
@@ -41,6 +42,7 @@ See [../LANES.md](../LANES.md). Touch only sticky-named regions in `app.rs` / `r
 
 ## Log
 
+- **2026-08-02:** pure `Esc w k` hide (glanceable no longer re-focuses first); multi-note tab strip on title row + roster titles for flip-through.
 - **2026-08-01:** sticky-pad-review follow-ups: bracket typing, Action cancel path, delete dirty race, session restore note load, unpaintable unfocus, paint body-rows (on main with 0.2.3 tip).
 - **2026-08-01 (SHIP):** Freeze window for **v0.2.2**.
 - **2026-08-01:** Scaffold created by Agents lane so ownership is visible. Stickies lane: overwrite this file with your real next steps and branch name.

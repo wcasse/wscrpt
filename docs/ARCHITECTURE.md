@@ -81,12 +81,13 @@ Concurrent Stickies vs Agents edit ownership: [LANES.md](LANES.md).
 `src/stickies.rs` stores notes as Markdown with a TOML `+++` front matter
 block. Team notes are workspace files under `.wscrpt/stickies/`; personal notes
 and any layout file live only under `$XDG_STATE_HOME/wscrpt/`. The primary TUI
-surface is a floating **top-right notepad** (`StickyPad`): `Esc w k` toggles
-the pad, `Esc w K` creates a personal note, and jotting happens in-place
-(focus, cycle, save/archive/delete chords). Notes are not opened as ordinary
-editor buffers by default. Archive is a front-matter flag; delete is an
-explicit pad action. Session state stores visibility only — not viewport
-geometry into the workspace.
+surface is a floating **top-right notepad** (`StickyPad`): `Esc w k` pure
+show/hide toggle (hides from focused or glanceable), `Esc w K` creates a
+personal note, and jotting happens in-place (focus, Ctrl-P/N tab cycle,
+save/archive/delete chords). Multi-note pads paint a compact tab strip in the
+title row. Notes are not opened as ordinary editor buffers by default. Archive
+is a front-matter flag; delete is an explicit pad action. Session state stores
+visibility only — not viewport geometry into the workspace.
 
 ## Remote preview Phase 0 boundary
 

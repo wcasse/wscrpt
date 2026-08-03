@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Sticky pad hide:** `Esc w k` is a pure visibility toggle. A glanceable (unfocused) pad now hides in one step instead of re-focusing first.
+
+### Changed
+
+- **Sticky pad tabs:** with multiple notes, the card title row is a compact tab strip (`[2:Ship*]` active, `‹ ›` overflow) like the buffer header. Cycle with **Ctrl-P / Ctrl-N** while focused. Unfocused footer says `Esc w k hide`.
+
 ## [0.2.4] - 2026-08-01
 
 ### Added
