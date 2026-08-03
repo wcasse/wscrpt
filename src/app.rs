@@ -10781,7 +10781,40 @@ impl App {
         self.agent.pending_receipt = None;
         self.agent.pending_checklist = None;
 
-        let (job, port) = if use_process {
+        let use_pi = use_process
+            && crate::agent_pi::is_pi_profile(&self.config.agent.profile, &self.config.agent.argv);
+
+        let (job, port) = if use_pi {
+            let argv = match crate::agent_pi::resolve_pi_argv(
+                &self.config.agent.profile,
+                &self.config.agent.argv,
+            ) {
+                Ok(argv) => argv,
+                Err(error) => {
+                    let _ = self.agent.coordinator.cancel_run();
+                    self.error(error);
+                    return;
+                }
+            };
+            match crate::agent_pi::spawn_pi_agent(crate::agent_pi::PiRunRequest {
+                workspace_id,
+                session_id: session.clone(),
+                generation,
+                cwd: self.workspace_root().to_path_buf(),
+                argv,
+                goal: goal.trim().to_owned(),
+                sticky_brief,
+                sticky_id: sticky_id.clone(),
+                model: None,
+            }) {
+                Ok(pair) => pair,
+                Err(error) => {
+                    let _ = self.agent.coordinator.cancel_run();
+                    self.error(error);
+                    return;
+                }
+            }
+        } else if use_process {
             match crate::agent_acp::spawn_acp_agent(crate::agent_acp::AcpRunRequest {
                 workspace_id,
                 session_id: session.clone(),
@@ -10808,7 +10841,13 @@ impl App {
         };
         self.agent.job = Some(job);
         self.agent.port = Some(port);
-        self.agent.last_summary = Some(if use_process {
+        self.agent.last_summary = Some(if use_pi {
+            if attached {
+                "Pi agent started with sticky brief".to_owned()
+            } else {
+                "Pi agent (RPC) started".to_owned()
+            }
+        } else if use_process {
             if attached {
                 "ACP agent started with sticky brief".to_owned()
             } else {
@@ -10823,7 +10862,13 @@ impl App {
             self.agent.dashboard_visible = true;
             self.ui.full_redraw = true;
         }
-        self.status(if use_process {
+        self.status(if use_pi {
+            if attached {
+                "Pi + sticky brief — Esc w D watch · Esc w x cancel · tool confirms auto-deny until approve chord"
+            } else {
+                "Pi RPC running — Esc w D dashboard · Esc w x cancel"
+            }
+        } else if use_process {
             if attached {
                 "ACP run + sticky brief — Esc w D watch · Esc w x cancel · Esc w A log after Review"
             } else {

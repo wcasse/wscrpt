@@ -273,9 +273,14 @@ stdio`) when `use_fake = false` — initialize / session/new / session/prompt,
 receipt mapping, cancel + process-group kill. Permission requests are cancelled
 with a Needs You notice (not silent grant). Fake remains default.
 
-**Still open for W2 complete:** permission *approval* UX (user choose allow),
-client-side fs/terminal ACP methods, dirty-tree protection, process/PTY
-restore polish, and a real useful human-reviewed edit run.
+**Pi RPC (Phase 2, post-0.2.4 main):** when `profile = "pi"`, spawn
+`pi --mode rpc` with in-repo permission-gate extension; map tools/paths/settle
+into the Agents dashboard; sticky brief on the prompt; cancel via Pi `abort` +
+process-group kill. Confirms fail-closed (auto-deny) until approve chord.
+
+**Still open for W2 complete:** permission *approval* UX (`Esc w A` allow),
+model picker, dirty-tree protection, process/PTY restore polish, and a real
+useful human-reviewed edit run on Pi.
 
 Gate: dirty-tree protection, exact authority, process/PTY restoration, bounded
 output, crash recovery, and a real useful run reviewed by a human.

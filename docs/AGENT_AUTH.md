@@ -86,12 +86,13 @@ provider marketplace. See [pi.dev](https://pi.dev/).
    Look for `agent.profile=pi`, resolved `pi` on PATH, and a note naming the
    permission gate file.
 
-5. Inside wscrpt: with `use_fake = false` and readiness, `Esc w a` will use the
-   configured process (Pi RPC once the runtime is wired; until then ACP/process
-   profiles follow `agent.argv`). **Lane baseline:** `Esc w A` is **approve**
-   for Needs You (not sticky write-back). Sticky receipt apply stays on
-   `:apply-receipt` / a non-`A` chord when approve lands. Fake remains the
-   default for CI and demos.
+5. Inside wscrpt: with `use_fake = false` and readiness, `Esc w a` spawns **Pi
+   RPC** when `profile = "pi"` (injects the permission gate). Other process
+   profiles still use ACP over `agent.argv`. Tool confirms currently
+   **auto-deny** (fail-closed) until the approve chord lands — you will see
+   Needs You receipt lines. **Lane baseline:** `Esc w A` will be **approve**
+   (not sticky write-back). Sticky receipt apply stays on `:apply-receipt` /
+   a non-`A` chord. Fake remains the default for CI and demos.
 
 ## Grok Build (ACP process)
 

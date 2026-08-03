@@ -205,13 +205,30 @@ pub fn probe_agent(config: &AgentConfig) -> AgentReadiness {
         };
     }
 
-    let argv_summary = if config.argv.is_empty() {
+    // Pi may leave argv empty — health pretends the default RPC argv.
+    let effective_argv = if config.argv.is_empty()
+        && matches!(
+            config.profile.to_ascii_lowercase().as_str(),
+            "pi" | "pi-rpc"
+        ) {
+        default_pi_argv()
+    } else {
+        config.argv.clone()
+    };
+    let argv_summary = if effective_argv.is_empty() {
         "(empty)".to_owned()
     } else {
-        config.argv.join(" ")
+        let with_gate = if matches!(
+            config.profile.to_ascii_lowercase().as_str(),
+            "pi" | "pi-rpc"
+        ) {
+            pi_argv_with_permission_gate(&effective_argv)
+        } else {
+            effective_argv.clone()
+        };
+        with_gate.join(" ")
     };
-    let argv0_resolved = config
-        .argv
+    let argv0_resolved = effective_argv
         .first()
         .and_then(|name| resolve_executable(name));
 

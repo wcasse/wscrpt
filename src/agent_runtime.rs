@@ -2,11 +2,11 @@
 //!
 //! UX model follows Grok Build's agentic terminal loop: plan-first receipts,
 //! explicit pause points (Needs You), cancellation that invalidates a generation,
-//! and review handoff — without requiring a full ACP wire client on day one.
+//! and review handoff.
 //!
-//! - [`FakeAgentRuntime`] drives the deterministic W0 script on a worker thread.
-//! - [`AgentConfig`] (in `config`) may name a future ACP argv (for example
-//!   `grok agent stdio`); process ACP is gated behind config and not the default.
+//! - Fake agent: deterministic W0 script on a worker thread (CI default).
+//! - Pi RPC: `crate::agent_pi` — `pi --mode rpc` + permission gate extension.
+//! - ACP process: `crate::agent_acp` — generic ACP stdio (e.g. `grok agent stdio`).
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};

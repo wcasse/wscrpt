@@ -9,7 +9,14 @@
   In-repo permission gate `pi/extensions/wscrpt-permission-gate.ts` hooks Pi
   `tool_call` → `ctx.ui.confirm` so Needs You can fire over RPC; path resolve +
   `--extension` injection helpers in `agent_auth` (`WSCRPT_PI_PERMISSION_GATE`
-  override). Fake agent remains the default. Full Pi RPC runtime still to land.
+  override). Fake agent remains the default.
+- **Pi RPC runtime (Phase 2):** `src/agent_pi.rs` spawns `pi --mode rpc` with
+  the permission gate, maps tool/path/settle events into the Agents dashboard
+  receipt, attaches sticky briefs to the prompt, and cancels via `abort` +
+  process-group kill. `Esc w a` selects Pi when `profile = "pi"` (or argv has
+  `--mode rpc`); other process profiles still use ACP. Tool
+  `extension_ui_request` confirms are **fail-closed deny** until the approve
+  chord (Phase 4). Empty `agent.argv` is allowed for `profile = "pi"`.
 
 ### Fixed
 

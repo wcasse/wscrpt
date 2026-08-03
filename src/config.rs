@@ -180,9 +180,13 @@ impl Config {
             }
         }
         if !self.agent.use_fake && self.agent.argv.is_empty() {
-            return Err(format!(
-                "{source_name}: agent.use_fake is false but agent.argv is empty"
-            ));
+            // Pi profile may omit argv — runtime fills `pi --mode rpc` + gate.
+            let profile = self.agent.profile.to_ascii_lowercase();
+            if profile != "pi" && profile != "pi-rpc" {
+                return Err(format!(
+                    "{source_name}: agent.use_fake is false but agent.argv is empty"
+                ));
+            }
         }
         Ok(())
     }

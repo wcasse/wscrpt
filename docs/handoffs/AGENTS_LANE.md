@@ -53,8 +53,8 @@ No separate Agent Activity popup. Receipt/detail lives in the dashboard via `for
 ## Next work (priority order)
 
 1. ~~**ACP process wire**~~ — done in 0.2.4 for generic ACP argv.
-2. **Pi RPC client** (`agent_pi`) — spawn with gate `--extension`; map events; cancel.
-3. **Needs You + keymap** — `Esc w A` = approve; deny action; rebind sticky apply; regenerate COMMANDS.md; answer `extension_ui_response`.
+2. ~~**Pi RPC client** (`agent_pi`)~~ — Phase 2: spawn + gate + event map + cancel + fail-closed confirms.
+3. **Needs You + keymap** — `Esc w A` = approve; deny action; rebind sticky apply; regenerate COMMANDS.md; answer `extension_ui_response` (stop auto-deny).
 4. **Model picker** — `Esc w m` via Pi `get_available_models` / `set_model`.
 5. **Dirty-tree gate** — refuse or confirm before run when workspace dirty.
 6. **Review handoff** — strengthen Git status/diff from Review without a new VCS UI.
@@ -86,6 +86,7 @@ cargo test --all-targets --all-features --locked
 
 ## Log
 
+- **2026-08-03:** Phase 2 Pi RPC — `src/agent_pi.rs` wired from `Esc w a` when `profile=pi`; tool/path/settle → dashboard; confirms fail-closed until approve chord.
 - **2026-08-03:** Phase 1 Pi plumbing — permission gate TS + `profile=pi` health notes + argv/`--extension` helpers; plan baseline `Esc w A` = approve.
 - **2026-08-01 (SHIP):** Freeze window for **v0.2.2** — land ACP wire or park on this branch; no absolute home paths in tracked docs.
 - **2026-08-01:** Lane ownership established; worktree `wscrpt-agents` on `agents/w2-lane`; dashboard consolidation leftovers on `main`.
