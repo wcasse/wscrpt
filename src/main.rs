@@ -37,6 +37,14 @@ format_on_save = false
 [agent]
 use_fake = true
 profile = "fake"
+# Example — Pi Coding Agent (recommended harness; auth stays in Pi):
+# use_fake = false
+# profile = "pi"
+# argv = ["pi", "--mode", "rpc"]
+# auth_check_argv = ["pi", "--version"]
+# wscrpt injects --extension pi/extensions/wscrpt-permission-gate.ts
+# (override path with WSCRPT_PI_PERMISSION_GATE if needed)
+#
 # Example — Grok Build on this host (after `grok login` or XAI_API_KEY):
 # use_fake = false
 # profile = "grok"

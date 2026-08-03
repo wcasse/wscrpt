@@ -35,10 +35,16 @@ pub struct Config {
 pub struct AgentConfig {
     /// Prefer the deterministic fake agent (safe default for demos and CI).
     pub use_fake: bool,
-    /// Label for health/docs: `fake`, `grok`, `claude`, `codex`, or `custom`.
+    /// Label for health/docs: `fake`, `pi`, `grok`, `claude`, `codex`, or `custom`.
     pub profile: String,
-    /// Optional ACP/process argv for a real agent (for example Grok Build:
-    /// `["grok", "agent", "stdio"]`). Ignored while `use_fake` is true.
+    /// Optional process argv for a real agent.
+    ///
+    /// Examples:
+    /// - Pi RPC: `["pi", "--mode", "rpc"]` (wscrpt injects the permission-gate
+    ///   `--extension` when missing; see `agent_auth::pi_argv_with_permission_gate`)
+    /// - Grok ACP: `["grok", "agent", "stdio"]`
+    ///
+    /// Ignored while `use_fake` is true.
     pub argv: Vec<String>,
     /// Optional argv run only by `wscrpt --health` / agent readiness checks
     /// (never on every keystroke). Exit 0 means the host agent looks signed-in.

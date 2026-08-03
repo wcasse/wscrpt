@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Pi agent profile (plumbing):** `profile = "pi"` health/docs path for
+  [Pi Coding Agent](https://pi.dev/) RPC (`argv = ["pi", "--mode", "rpc"]`).
+  In-repo permission gate `pi/extensions/wscrpt-permission-gate.ts` hooks Pi
+  `tool_call` → `ctx.ui.confirm` so Needs You can fire over RPC; path resolve +
+  `--extension` injection helpers in `agent_auth` (`WSCRPT_PI_PERMISSION_GATE`
+  override). Fake agent remains the default. Full Pi RPC runtime still to land.
+
 ### Fixed
 
 - **Sticky pad hide:** `Esc w k` is a pure visibility toggle. A glanceable (unfocused) pad now hides in one step instead of re-focusing first.
