@@ -151,12 +151,12 @@ final class RemotePreviewControlTests: XCTestCase {
 
     func testCommandBuilderExpandsOnlyLeadingHomeMarker() throws {
         let builder = try RemotePreviewCommandBuilder(
-            workspacePath: "~/projects/BIRDWORLD"
+            workspacePath: "~/projects/example-workspace"
         )
         let command = builder.list()
 
         XCTAssertTrue(command.contains("\"$HOME\"/"))
-        XCTAssertTrue(command.contains("projects/BIRDWORLD"))
+        XCTAssertTrue(command.contains("projects/example-workspace"))
         XCTAssertFalse(command.contains("cd '~"))
     }
 

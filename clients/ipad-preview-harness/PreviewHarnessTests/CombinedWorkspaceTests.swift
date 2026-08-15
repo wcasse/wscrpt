@@ -40,9 +40,9 @@ final class CombinedWorkspaceTests: XCTestCase {
             host: "[FD7A:115C:A1E0::10]",
             port: 2_222,
             username: "developer",
-            workspace: "~/projects/BIRDWORLD",
+            workspace: "~/projects/example-workspace",
             previewToolsPath: "~/src/wscrpt",
-            launchStyle: .tmux(session: "  birdworld_dev  "),
+            launchStyle: .tmux(session: "  example_dev  "),
             authenticationMethod: .deviceKey
         )
 
@@ -52,7 +52,7 @@ final class CombinedWorkspaceTests: XCTestCase {
         XCTAssertEqual(profile.endpointDescription, "[fd7a:115c:a1e0::10]:2222")
         XCTAssertEqual(profile.connectionDescription, "developer@[fd7a:115c:a1e0::10]:2222")
         XCTAssertEqual(profile.previewToolsPath, "~/src/wscrpt")
-        XCTAssertEqual(profile.launchStyle, .tmux(session: "birdworld_dev"))
+        XCTAssertEqual(profile.launchStyle, .tmux(session: "example_dev"))
 
         let encoded = try JSONEncoder().encode(profile)
         let json = try XCTUnwrap(String(data: encoded, encoding: .utf8))
@@ -225,13 +225,13 @@ final class CombinedWorkspaceTests: XCTestCase {
             name: "Birdworld",
             host: "remotehost.local",
             username: "developer",
-            workspace: "~/projects/BIRDWORLD",
-            launchStyle: .tmux(session: "birdworld_dev")
+            workspace: "~/projects/example-workspace",
+            launchStyle: .tmux(session: "example_dev")
         )
 
         XCTAssertEqual(
             RemoteLaunchCommandBuilder.command(for: profile),
-            "exec tmux new-session -A -s 'birdworld_dev' -c \"$HOME\"/'projects/BIRDWORLD' 'exec wscrpt .'"
+            "exec tmux new-session -A -s 'example_dev' -c \"$HOME\"/'projects/example-workspace' 'exec wscrpt .'"
         )
     }
 

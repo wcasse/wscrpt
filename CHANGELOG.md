@@ -4,6 +4,19 @@
 
 ### Added
 
+- **Write profile:** buffers infer `prose` (`.md` / `.txt` / untitled) or `code`.
+  Toggle with `Esc w M` / `:mode prose|code`. Prose uses word-boundary soft wrap.
+- **Hard wrap:** `Esc w H` / `:hard-wrap` reflows the current prose paragraph to
+  `hard_wrap_column` (default 72). Never runs on save.
+- **Idle autosave:** named files save after `autosave_idle_ms` (default 2000)
+  without formatting. Recovery journals remain the crash path. `0` disables.
+- **Themes:** `theme = "dark" | "light" | "auto"` (`COLORFGBG`, else dark).
+  `Esc w T` / `:theme` cycles. Darker canvas; Kandinsky-bright buffer tabs.
+- **Prose spellcheck:** unknown words underline; a small typo table auto-corrects
+  on space/punctuation (`teh` → `the`). No new crates. Optional `spell_argv`.
+- **Space-hold chords (prose):** a held Space (terminal Repeat) arms a layer:
+  `s` save, `f` find, `o` open, `p` palette, `w` wrap, `m` mode, `h` help.
+  Ordinary Space still inserts immediately.
 - **Pi agent profile (plumbing):** `profile = "pi"` health/docs path for
   [Pi Coding Agent](https://pi.dev/) RPC (`argv = ["pi", "--mode", "rpc"]`).
   In-repo permission gate `pi/extensions/wscrpt-permission-gate.ts` hooks Pi

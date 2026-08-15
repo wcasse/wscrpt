@@ -1,8 +1,9 @@
 # wscrpt status — ship readiness
 
-**Date:** 2026-08-01  
+**Date:** 2026-08-15  
 **Install tag (strangers):** **`v0.2.4`** → `6d2dd1b`  
-**Prior tags:** `v0.2.0` … `v0.2.3` — **never move**
+**Prior tags:** `v0.2.0` … `v0.2.3` — **never move**  
+**main** is past the pin (Pi RPC + writer-pass WIP on `editor/writer-pass`). Do not move the public pin until a new tag.
 
 ## Ready-to-ship scoreboard
 
@@ -29,4 +30,5 @@
 
 ## Live log
 
+- **2026-08-15:** Writer pass on `editor/writer-pass` (word wrap, idle autosave, dark/light, prose spell, space-hold). Not tagged.
 - **2026-08-01:** Cut **v0.2.4** — ACP process wire + pad/checklist polish after sticky-pad-review.

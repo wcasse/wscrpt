@@ -20,6 +20,19 @@ pub struct Config {
     /// When true, Save requests LSP document formatting before writing disk.
     /// Formatting remains explicit (`Esc c f`) when this is false.
     pub format_on_save: bool,
+    /// Idle milliseconds after the last edit before a named file is saved.
+    /// `0` disables file autosave (recovery journals still run).
+    pub autosave_idle_ms: u64,
+    /// Column used by `:hard-wrap` / `Esc w H` in prose.
+    pub hard_wrap_column: usize,
+    /// TUI chrome: `auto` reads `COLORFGBG`, else dark.
+    pub theme: ThemeChoice,
+    /// Prose-only typo replacements on space/punctuation.
+    pub autocorrect: bool,
+    /// Prose-only Space-hold chord layer (needs key Repeat from the terminal).
+    pub space_hold_chords: bool,
+    /// Optional host spell checker argv (user global only). Empty = bundled list.
+    pub spell_argv: Vec<String>,
     /// Host-local coding agent (user global only; never from project files).
     pub agent: AgentConfig,
     pub language_servers: Vec<LanguageServerConfig>,
@@ -80,6 +93,43 @@ pub struct LanguageServerConfig {
     pub argv: Vec<String>,
 }
 
+/// Product TUI appearance. Marketing hex tokens stay out of this file.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ThemeChoice {
+    #[default]
+    Auto,
+    Dark,
+    Light,
+}
+
+impl ThemeChoice {
+    pub fn parse(name: &str) -> Option<Self> {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "auto" => Some(Self::Auto),
+            "dark" => Some(Self::Dark),
+            "light" => Some(Self::Light),
+            _ => None,
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Dark => "dark",
+            Self::Light => "light",
+        }
+    }
+
+    pub const fn cycle(self) -> Self {
+        match self {
+            Self::Auto => Self::Dark,
+            Self::Dark => Self::Light,
+            Self::Light => Self::Auto,
+        }
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -90,6 +140,12 @@ impl Default for Config {
             scroll_margin: 3,
             osc52_copy: true,
             format_on_save: false,
+            autosave_idle_ms: 2_000,
+            hard_wrap_column: crate::write::DEFAULT_HARD_WRAP_COLUMN,
+            theme: ThemeChoice::Auto,
+            autocorrect: true,
+            space_hold_chords: true,
+            spell_argv: Vec::new(),
             agent: AgentConfig::default(),
             language_servers: Vec::new(),
         }
@@ -117,6 +173,32 @@ impl Config {
             return Err(format!("{source_name}: tab_width must be 1 through 16"));
         }
         config.scroll_margin = config.scroll_margin.min(20);
+        if config.autosave_idle_ms > 60_000 {
+            return Err(format!(
+                "{source_name}: autosave_idle_ms must be 0 through 60000"
+            ));
+        }
+        if config.hard_wrap_column < crate::write::MIN_HARD_WRAP_COLUMN
+            || config.hard_wrap_column > crate::write::MAX_HARD_WRAP_COLUMN
+        {
+            return Err(format!(
+                "{source_name}: hard_wrap_column must be {} through {}",
+                crate::write::MIN_HARD_WRAP_COLUMN,
+                crate::write::MAX_HARD_WRAP_COLUMN
+            ));
+        }
+        if config.spell_argv.len() > 16 {
+            return Err(format!(
+                "{source_name}: spell_argv is limited to 16 elements"
+            ));
+        }
+        for (index, part) in config.spell_argv.iter().enumerate() {
+            if part.is_empty() || part.chars().any(char::is_control) {
+                return Err(format!(
+                    "{source_name}: spell_argv[{index}] must be non-empty without controls"
+                ));
+            }
+        }
         config.validate_agent(source_name)?;
         config.validate_language_servers(source_name)?;
         Ok(config)

@@ -30,6 +30,12 @@ scroll_margin = 3
 osc52_copy = true
 # When true, Save requests LSP document formatting before writing to disk.
 format_on_save = false
+autosave_idle_ms = 2000
+hard_wrap_column = 72
+theme = "auto"
+autocorrect = true
+space_hold_chords = true
+# spell_argv = ["aspell", "list"]
 
 # Host-local coding agent (user global only). Auth is NEVER stored here —
 # use the agent CLI login or host env (see docs/AGENT_AUTH.md).
@@ -289,6 +295,7 @@ fn main() -> Result<()> {
             redraw |= app.checkpoint_session();
             last_recovery = Instant::now();
         }
+        redraw |= app.checkpoint_autosave();
         redraw |= app.poll_ui_transients();
         redraw |= app.poll_services();
 

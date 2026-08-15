@@ -183,7 +183,7 @@ The remote host's read-only SSH preflight is green through the Mac's existing id
 and a `direct-tcpip` probe to remote `127.0.0.1:22` returned its OpenSSH 9.6
 banner. This establishes server forwarding support, not NIOSSH authentication
 from the app. The real route is not provisioned: remote `wscrpt`, `previewctl`,
-the expected BIRDWORLD path, and authorization of the actual iPad device key
+the expected example workspace path, and authorization of the actual iPad device key
 are absent. CoreDevice also reported no physical device attached for this run.
 
 No item above closes human landscape visual acceptance, the physical Magic

@@ -53,7 +53,7 @@ use crate::text::{
     char_for_scalar_column, char_for_visual_column, next_grapheme_end, previous_grapheme_start,
     visual_width,
 };
-use crate::visual::{VisualAnchor, VisualMetrics};
+use crate::visual::VisualAnchor;
 use crate::{Document, EditKind, Editor, LineCommentToggle, Workspace};
 
 const MAX_JUMP_HISTORY: usize = 100;
@@ -712,6 +712,17 @@ struct UiState {
     jump_forward: Vec<JumpLocation>,
     bookmarks: Vec<JumpLocation>,
     closed_buffers: Vec<ClosedBufferState>,
+    space_hold: SpaceHold,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum SpaceHold {
+    #[default]
+    Idle,
+    /// A space was just inserted; a Repeat space will arm the chord layer.
+    Pending,
+    /// Next character is a Space+key chord.
+    Armed,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -815,6 +826,13 @@ struct PersistenceState {
     session_store: Option<SessionStore>,
     last_session: Option<Session>,
     recent_files: Vec<PathBuf>,
+    autosave_stamps: HashMap<u64, AutosaveStamp>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct AutosaveStamp {
+    state_id: u64,
+    first_seen: Instant,
 }
 
 impl PersistenceState {
@@ -1012,6 +1030,7 @@ impl App {
                 jump_forward: Vec::new(),
                 bookmarks: Vec::new(),
                 closed_buffers: Vec::new(),
+                space_hold: SpaceHold::Idle,
             },
             project: ProjectState {
                 index: None,
@@ -1073,6 +1092,7 @@ impl App {
                 session_store: SessionStore::from_env().ok(),
                 last_session: None,
                 recent_files,
+                autosave_stamps: HashMap::new(),
             },
             git: GitState {
                 repository: None,
@@ -1191,6 +1211,27 @@ impl App {
 
     pub fn soft_wrap_enabled(&self) -> bool {
         self.ui.soft_wrap
+    }
+
+    pub fn write_profile(&self) -> crate::write::WriteProfile {
+        self.workspace.active().write_profile()
+    }
+
+    pub fn wrap_policy(&self) -> crate::wrap::WrapPolicy {
+        self.write_profile().wrap_policy()
+    }
+
+    pub fn visual_metrics(&self, content_width: usize) -> crate::visual::VisualMetrics {
+        self.wrap_metrics(content_width, self.ui.soft_wrap)
+    }
+
+    fn wrap_metrics(&self, content_width: usize, soft_wrap: bool) -> crate::visual::VisualMetrics {
+        crate::visual::VisualMetrics::new(content_width, self.config.tab_width, soft_wrap)
+            .with_wrap_policy(self.wrap_policy())
+    }
+
+    pub fn resolved_theme(&self) -> crate::render::ResolvedTheme {
+        crate::render::resolve_theme(self.config.theme)
     }
 
     pub fn should_quit(&self) -> bool {
@@ -2105,7 +2146,7 @@ impl App {
     pub fn prepare_viewport(&mut self, layout: Layout) {
         let manual_scroll = std::mem::take(&mut self.ui.viewport_scroll_pending);
         if self.ui.soft_wrap {
-            let metrics = VisualMetrics::new(layout.content_width, self.config.tab_width, true);
+            let metrics = self.wrap_metrics(layout.content_width, true);
             let result = if manual_scroll {
                 let mut editor = self.workspace.active_mut();
                 metrics
@@ -2676,6 +2717,10 @@ impl App {
             return;
         }
 
+        if self.handle_space_hold(key) {
+            return;
+        }
+
         let selecting = key.modifiers.contains(KeyModifiers::SHIFT);
         let word_motion = key
             .modifiers
@@ -2737,8 +2782,113 @@ impl App {
         drop(editor);
         if let Err(error) = result {
             self.error(error.to_string());
-        } else {
-            self.ui.status = None;
+            return;
+        }
+        if let KeyCode::Char(character) = key.code
+            && !key
+                .modifiers
+                .intersects(KeyModifiers::ALT | KeyModifiers::SUPER)
+        {
+            if character == ' ' && self.space_hold_enabled() {
+                self.ui.space_hold = SpaceHold::Pending;
+            }
+            if character == ' ' || is_sentence_punct(character) {
+                self.apply_prose_autocorrect();
+            }
+        }
+        self.ui.status = None;
+    }
+
+    fn space_hold_enabled(&self) -> bool {
+        self.config.space_hold_chords
+            && self.write_profile() == crate::write::WriteProfile::Prose
+            && !self.ui.keymap.is_active()
+    }
+
+    /// Returns true when the key was consumed by the Space-hold layer.
+    fn handle_space_hold(&mut self, key: KeyEvent) -> bool {
+        if !self.space_hold_enabled() {
+            self.ui.space_hold = SpaceHold::Idle;
+            return false;
+        }
+        match self.ui.space_hold {
+            SpaceHold::Armed => {
+                if key.kind == KeyEventKind::Repeat && matches!(key.code, KeyCode::Char(' ')) {
+                    return true;
+                }
+                self.ui.space_hold = SpaceHold::Idle;
+                if let KeyCode::Char(character) = key.code
+                    && let Some(action) = space_hold_action(character)
+                {
+                    self.consume_inserted_space();
+                    self.execute_action(action);
+                    return true;
+                }
+                if matches!(key.code, KeyCode::Char(_)) {
+                    self.status("Space layer cancelled");
+                    return true;
+                }
+                false
+            }
+            SpaceHold::Pending => {
+                if key.kind == KeyEventKind::Repeat && matches!(key.code, KeyCode::Char(' ')) {
+                    self.ui.space_hold = SpaceHold::Armed;
+                    self.status(
+                        "SPACE · s save  f find  o open  p palette  w wrap  m mode  h help",
+                    );
+                    return true;
+                }
+                self.ui.space_hold = SpaceHold::Idle;
+                false
+            }
+            SpaceHold::Idle => {
+                if key.kind == KeyEventKind::Repeat && matches!(key.code, KeyCode::Char(' ')) {
+                    self.ui.space_hold = SpaceHold::Armed;
+                    self.status(
+                        "SPACE · s save  f find  o open  p palette  w wrap  m mode  h help",
+                    );
+                    return true;
+                }
+                false
+            }
+        }
+    }
+
+    fn consume_inserted_space(&mut self) {
+        let mut editor = self.workspace.active_mut();
+        if editor.cursor == 0 {
+            return;
+        }
+        if editor.document.char(editor.cursor - 1) == Some(' ') {
+            let _ = editor.backspace();
+        }
+    }
+
+    fn apply_prose_autocorrect(&mut self) {
+        if !self.config.autocorrect || self.write_profile() != crate::write::WriteProfile::Prose {
+            return;
+        }
+        let text = self.workspace.active().document.text();
+        let cursor = self.workspace.active().cursor;
+        let Some((range, token)) = crate::spell::word_before(&text, cursor) else {
+            return;
+        };
+        let Some(fix) = crate::spell::correction_for(&token) else {
+            return;
+        };
+        if fix == token {
+            return;
+        }
+        let mut editor = self.workspace.active_mut();
+        editor.anchor = Some(range.end);
+        editor.cursor = range.start;
+        if editor.insert(fix, crate::EditKind::Replace).is_ok() {
+            let after_word = range.start + fix.chars().count();
+            if after_word < editor.document.len_chars() {
+                editor.cursor = after_word + 1;
+            } else {
+                editor.cursor = after_word;
+            }
         }
     }
 
@@ -3084,6 +3234,9 @@ impl App {
                     "Soft wrap off"
                 });
             }
+            Action::ToggleWriteProfile => self.toggle_write_profile(),
+            Action::HardWrap => self.hard_wrap_active_paragraph(),
+            Action::CycleTheme => self.set_theme(None),
             Action::ToggleLineNumbers => self.set_line_numbers(!self.config.line_numbers),
             Action::PreviousWord => self.workspace.active_mut().move_word_left(false),
             Action::NextWord => self.workspace.active_mut().move_word_right(false),
@@ -4570,7 +4723,162 @@ impl App {
             ExCommand::AgentChecklist => self.start_sticky_checklist_run(),
             ExCommand::AgentApplyChecklist => self.apply_pending_checklist(),
             ExCommand::AgentApplyReceipt => self.apply_pending_receipt(),
+            ExCommand::SetWriteProfile(profile) => match profile {
+                Some(profile) => {
+                    self.workspace.active_mut().set_write_profile(profile);
+                    self.ui.full_redraw = true;
+                    self.status(format!("Write profile: {}", profile.as_str()));
+                }
+                None => self.toggle_write_profile(),
+            },
+            ExCommand::HardWrap => self.hard_wrap_active_paragraph(),
+            ExCommand::SetTheme(theme) => self.set_theme(theme),
         }
+    }
+
+    fn toggle_write_profile(&mut self) {
+        let profile = self.workspace.active_mut().toggle_write_profile();
+        self.ui.full_redraw = true;
+        self.status(format!("Write profile: {}", profile.as_str()));
+    }
+
+    fn set_theme(&mut self, theme: Option<crate::config::ThemeChoice>) {
+        self.config.theme = theme.unwrap_or_else(|| self.config.theme.cycle());
+        self.ui.full_redraw = true;
+        self.status(format!("Theme: {}", self.config.theme.as_str()));
+    }
+
+    fn hard_wrap_active_paragraph(&mut self) {
+        if self.workspace.active().document.is_read_only() {
+            self.status("This view is read-only");
+            return;
+        }
+        if self.workspace.active().write_profile() != crate::write::WriteProfile::Prose {
+            self.status("Hard wrap is for prose; Esc w M switches profile");
+            return;
+        }
+        let column = self.config.hard_wrap_column;
+        let cursor = self.workspace.active().cursor;
+        let range = crate::write::paragraph_char_range(&self.workspace.active().document, cursor);
+        if range.start >= range.end {
+            self.status("Nothing to wrap");
+            return;
+        }
+        let original = self.workspace.active().document.slice(range.clone());
+        let wrapped = crate::write::hard_wrap_text(&original, column);
+        if wrapped == original {
+            self.status("Paragraph already wrapped");
+            return;
+        }
+        let result = {
+            let mut editor = self.workspace.active_mut();
+            editor.anchor = Some(range.end);
+            editor.cursor = range.start;
+            editor.insert(&wrapped, crate::EditKind::Replace)
+        };
+        match result {
+            Ok(()) => self.status(format!("Hard-wrapped to column {column}")),
+            Err(error) => self.error(error.to_string()),
+        }
+    }
+
+    /// Save named dirty buffers after they have been idle. Never formats.
+    pub fn checkpoint_autosave(&mut self) -> bool {
+        if self.config.autosave_idle_ms == 0 {
+            return false;
+        }
+        let idle = Duration::from_millis(self.config.autosave_idle_ms);
+        let now = Instant::now();
+        let mut due = Vec::new();
+        let live: HashSet<u64> = self.workspace.buffers().iter().map(Editor::id).collect();
+        self.persistence
+            .autosave_stamps
+            .retain(|editor_id, _| live.contains(editor_id));
+        for (index, editor) in self.workspace.buffers().iter().enumerate() {
+            if editor.document.is_read_only()
+                || !editor.document.is_modified()
+                || editor.document.path().is_none()
+            {
+                self.persistence.autosave_stamps.remove(&editor.id());
+                continue;
+            }
+            let state_id = editor.document.state_id();
+            match self.persistence.autosave_stamps.get(&editor.id()) {
+                Some(stamp)
+                    if stamp.state_id == state_id
+                        && now.duration_since(stamp.first_seen) >= idle =>
+                {
+                    due.push(index);
+                }
+                Some(stamp) if stamp.state_id == state_id => {}
+                _ => {
+                    self.persistence.autosave_stamps.insert(
+                        editor.id(),
+                        AutosaveStamp {
+                            state_id,
+                            first_seen: now,
+                        },
+                    );
+                }
+            }
+        }
+        if due.is_empty() {
+            return false;
+        }
+        let mut saved = 0usize;
+        let mut last_name = String::new();
+        let mut painted = false;
+        for index in due {
+            let editor_id = self.workspace.buffers()[index].id();
+            let name = self.workspace.buffers()[index]
+                .document
+                .display_name()
+                .to_owned();
+            let save_result = {
+                let Some(mut editor) = self.workspace.editor_mut(index) else {
+                    continue;
+                };
+                editor.document.save()
+            };
+            match save_result {
+                Ok(()) => {
+                    saved += 1;
+                    last_name = name;
+                    self.persistence.autosave_stamps.remove(&editor_id);
+                    if let Some(record_id) = self.persistence.recovery_ids.get(&editor_id).cloned()
+                    {
+                        if let Some(store) = self.persistence.recovery_store.as_ref() {
+                            let _ = store.remove(&record_id);
+                        }
+                        self.persistence.recovery_ids.remove(&editor_id);
+                        self.persistence
+                            .recovery_checkpoint_state
+                            .remove(&editor_id);
+                    }
+                }
+                Err(error) => {
+                    let state_id = self.workspace.buffers()[index].document.state_id();
+                    self.persistence.autosave_stamps.insert(
+                        editor_id,
+                        AutosaveStamp {
+                            state_id,
+                            first_seen: now,
+                        },
+                    );
+                    self.error(format!("Autosave failed for {name}: {error}"));
+                    painted = true;
+                }
+            }
+        }
+        if saved > 0 {
+            self.status(if saved == 1 {
+                format!("Autosaved {last_name}")
+            } else {
+                format!("Autosaved {saved} files")
+            });
+            painted = true;
+        }
+        painted
     }
 
     fn save_current(&mut self) {
@@ -4984,8 +5292,7 @@ impl App {
         match mouse.kind {
             MouseEventKind::ScrollUp => {
                 if self.ui.soft_wrap {
-                    let metrics =
-                        VisualMetrics::new(layout.content_width, self.config.tab_width, true);
+                    let metrics = self.wrap_metrics(layout.content_width, true);
                     let result = self.workspace.active_mut().scroll_wrapped_rows(metrics, -3);
                     match result {
                         Ok(()) => self.ui.viewport_scroll_pending = true,
@@ -4999,8 +5306,7 @@ impl App {
             }
             MouseEventKind::ScrollDown => {
                 if self.ui.soft_wrap {
-                    let metrics =
-                        VisualMetrics::new(layout.content_width, self.config.tab_width, true);
+                    let metrics = self.wrap_metrics(layout.content_width, true);
                     let result = self.workspace.active_mut().scroll_wrapped_rows(metrics, 3);
                     match result {
                         Ok(()) => self.ui.viewport_scroll_pending = true,
@@ -5105,7 +5411,7 @@ impl App {
             return;
         }
         if self.ui.soft_wrap {
-            let metrics = VisualMetrics::new(layout.content_width, self.config.tab_width, true);
+            let metrics = self.wrap_metrics(layout.content_width, true);
             let screen_row = row - layout.content_y;
             let result = {
                 let editor = self.workspace.active();
@@ -10115,7 +10421,7 @@ impl App {
                 self.workspace.active().document.line_count(),
                 self.config.line_numbers,
             );
-            let metrics = VisualMetrics::new(layout.content_width, self.config.tab_width, true);
+            let metrics = self.wrap_metrics(layout.content_width, true);
             self.workspace
                 .active_mut()
                 .move_wrapped_vertical(delta, selecting, metrics)
@@ -11605,6 +11911,23 @@ impl App {
     }
 }
 
+fn is_sentence_punct(character: char) -> bool {
+    matches!(character, '.' | ',' | ';' | ':' | '!' | '?' | ')' | ']')
+}
+
+fn space_hold_action(character: char) -> Option<Action> {
+    match character.to_ascii_lowercase() {
+        's' => Some(Action::Save),
+        'f' | '/' => Some(Action::Find),
+        'o' => Some(Action::QuickOpen),
+        'p' => Some(Action::CommandPalette),
+        'w' => Some(Action::ToggleSoftWrap),
+        'm' => Some(Action::ToggleWriteProfile),
+        'h' => Some(Action::Help),
+        _ => None,
+    }
+}
+
 fn normalize_action_key(key: KeyEvent, action_active: bool) -> Option<Key> {
     if matches!(key.code, KeyCode::Esc) {
         return Some(Key::Escape);
@@ -12368,6 +12691,110 @@ mod tests {
 
     fn key(code: KeyCode) -> Event {
         Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
+    }
+
+    fn key_repeat(code: KeyCode) -> Event {
+        Event::Key(KeyEvent {
+            code,
+            modifiers: KeyModifiers::NONE,
+            kind: KeyEventKind::Repeat,
+            state: crossterm::event::KeyEventState::NONE,
+        })
+    }
+
+    #[test]
+    fn untitled_buffers_default_to_prose_and_can_toggle() {
+        let mut app = app_with_text("hello world");
+        assert_eq!(app.write_profile(), crate::write::WriteProfile::Prose);
+        app.execute_action(Action::ToggleWriteProfile);
+        assert_eq!(app.write_profile(), crate::write::WriteProfile::Code);
+        app.execute_action(Action::ToggleWriteProfile);
+        assert_eq!(app.write_profile(), crate::write::WriteProfile::Prose);
+    }
+
+    #[test]
+    fn hard_wrap_reflows_a_prose_paragraph() {
+        let mut app = app_with_text("hello world from wscrpt tonight\n");
+        app.config = Config {
+            hard_wrap_column: 12,
+            ..Config::default()
+        };
+        app.execute_action(Action::HardWrap);
+        assert_eq!(
+            app.workspace.active().document.text(),
+            "hello world\nfrom wscrpt\ntonight\n"
+        );
+    }
+
+    #[test]
+    fn hard_wrap_refuses_code_profile() {
+        let mut app = app_with_text("hello world from wscrpt tonight\n");
+        app.workspace
+            .active_mut()
+            .set_write_profile(crate::write::WriteProfile::Code);
+        app.execute_action(Action::HardWrap);
+        assert_eq!(
+            app.workspace.active().document.text(),
+            "hello world from wscrpt tonight\n"
+        );
+    }
+
+    #[test]
+    fn prose_autocorrect_fixes_teh_on_space() {
+        let mut app = app_with_text("");
+        for character in "teh".chars() {
+            app.handle_event(key(KeyCode::Char(character)));
+        }
+        app.handle_event(key(KeyCode::Char(' ')));
+        assert_eq!(app.workspace.active().document.text(), "the ");
+    }
+
+    #[test]
+    fn space_hold_repeat_then_s_saves_and_eats_the_space() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("note.md");
+        std::fs::write(&path, "draft").unwrap();
+        let workspace =
+            Workspace::from_path(Some(path.clone()), Some(dir.path().to_path_buf())).unwrap();
+        let mut app = App::new_ready_for_test(workspace, Config::default());
+        assert_eq!(app.write_profile(), crate::write::WriteProfile::Prose);
+        {
+            let mut editor = app.workspace.active_mut();
+            editor.cursor = editor.document.len_chars();
+        }
+        app.handle_event(key(KeyCode::Char('x')));
+        app.handle_event(key(KeyCode::Char(' ')));
+        app.handle_event(key_repeat(KeyCode::Char(' ')));
+        app.handle_event(key(KeyCode::Char('s')));
+        assert!(!app.workspace.active().document.text().ends_with(' '));
+        assert!(!app.workspace.active().document.is_modified());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "draftx");
+    }
+
+    #[test]
+    fn idle_autosave_writes_a_named_file_without_formatting() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("note.md");
+        std::fs::write(&path, "a").unwrap();
+        let workspace =
+            Workspace::from_path(Some(path.clone()), Some(dir.path().to_path_buf())).unwrap();
+        let config = Config {
+            autosave_idle_ms: 1,
+            format_on_save: true,
+            ..Config::default()
+        };
+        let mut app = App::new_ready_for_test(workspace, config);
+        {
+            let mut editor = app.workspace.active_mut();
+            editor.cursor = editor.document.len_chars();
+        }
+        app.handle_event(key(KeyCode::Char('b')));
+        assert!(app.workspace.active().document.is_modified());
+        assert!(!app.checkpoint_autosave());
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        assert!(app.checkpoint_autosave());
+        assert!(!app.workspace.active().document.is_modified());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "ab");
     }
 
     fn exit_action_layer(app: &mut App) {

@@ -7,6 +7,7 @@ use crate::text::{
 };
 use crate::visual::{VisualAnchor, VisualMetrics};
 use crate::wrap::WrapError;
+use crate::write::WriteProfile;
 
 static EDITOR_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -54,6 +55,8 @@ pub struct EditorState {
     pub cursor: usize,
     pub anchor: Option<usize>,
     pub viewport: Viewport,
+    /// `None` means infer from the document path.
+    pub write_profile_override: Option<WriteProfile>,
     desired_visual_column: Option<usize>,
 }
 
@@ -66,6 +69,7 @@ impl Editor {
                 cursor: 0,
                 anchor: None,
                 viewport: Viewport::default(),
+                write_profile_override: None,
                 desired_visual_column: None,
             },
         }
@@ -98,6 +102,24 @@ impl DerefMut for Editor {
 }
 
 impl EditorState {
+    pub fn write_profile(&self) -> WriteProfile {
+        if self.document.is_read_only() {
+            return WriteProfile::Code;
+        }
+        self.write_profile_override
+            .unwrap_or_else(|| WriteProfile::infer(self.document.path()))
+    }
+
+    pub fn set_write_profile(&mut self, profile: WriteProfile) {
+        self.write_profile_override = Some(profile);
+    }
+
+    pub fn toggle_write_profile(&mut self) -> WriteProfile {
+        let next = self.write_profile().other();
+        self.write_profile_override = Some(next);
+        next
+    }
+
     pub fn position(&self, tab_width: usize) -> CursorPosition {
         let line = self.document.char_to_line(self.cursor);
         let start = self.document.line_start_char(line);
