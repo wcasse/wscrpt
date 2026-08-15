@@ -36,6 +36,9 @@ Enter the no-timeout action layer with `Esc` or `Ctrl-K`, then type the listed s
 | `Esc l` | `core.select-lines` | Select Line/Selection |
 | `Esc a` | `core.select-all` | Select All |
 | `Esc z` | `core.toggle-soft-wrap` | Toggle Soft Wrap |
+| `Esc w M` | `core.toggle-write-profile` | Toggle Write Profile |
+| `Esc w H` | `core.hard-wrap` | Hard Wrap Paragraph |
+| `Esc w T` | `core.cycle-theme` | Cycle Theme |
 | `Esc L` | `core.toggle-line-numbers` | Toggle Line Numbers |
 | `Esc Left` | `core.previous-word` | Previous Word |
 | `Esc Right` | `core.next-word` | Next Word |

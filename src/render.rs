@@ -16,7 +16,7 @@ use crate::app::{App, Prompt};
 use crate::lsp_ui::DiagnosticSeverity;
 use crate::syntax::{SyntaxKind, SyntaxSpan};
 use crate::text::{grapheme_cell_width, visual_width};
-use crate::visual::{VisualAnchor, VisualMetrics, VisualRow};
+use crate::visual::{VisualAnchor, VisualRow};
 
 const MIN_WIDTH_FOR_PROJECT_SIDEBAR: usize = 72;
 const MIN_EDITOR_WIDTH_WITH_PROJECT_SIDEBAR: usize = 48;
@@ -29,24 +29,87 @@ const MAX_AGENT_DASHBOARD_HEIGHT_COMPACT: usize = 7;
 /// Deep strip for live runs / full receipt (replaces the old activity popup).
 const MAX_AGENT_DASHBOARD_HEIGHT_DEEP: usize = 18;
 
-/// A fixed twelve-step xterm-256 hue wheel for buffer tabs.
+/// A fixed twelve-step Kandinsky wheel for buffer tabs.
 ///
 /// Tab position owns the color, so changing the active buffer never recolors
-/// the header. The first entry deliberately preserves the original blue tab.
+/// the header. Pigments stay high-chroma; ink is white or black for contrast.
 const HEADER_TAB_CHROMATIC_SCALE: [(Color, Color); 12] = [
-    (Color::White, Color::AnsiValue(24)),  // blue
-    (Color::White, Color::AnsiValue(25)),  // azure
-    (Color::White, Color::AnsiValue(61)),  // indigo
-    (Color::White, Color::AnsiValue(91)),  // violet
-    (Color::White, Color::AnsiValue(125)), // magenta
-    (Color::White, Color::AnsiValue(124)), // red
-    (Color::White, Color::AnsiValue(130)), // orange
-    (Color::Black, Color::AnsiValue(136)), // amber
-    (Color::Black, Color::AnsiValue(64)),  // chartreuse
-    (Color::Black, Color::AnsiValue(29)),  // green
-    (Color::Black, Color::AnsiValue(30)),  // teal
-    (Color::Black, Color::AnsiValue(31)),  // cyan
+    (Color::White, Color::AnsiValue(196)), // red
+    (Color::Black, Color::AnsiValue(226)), // yellow
+    (Color::White, Color::AnsiValue(21)),  // blue
+    (Color::Black, Color::AnsiValue(46)),  // green
+    (Color::White, Color::AnsiValue(201)), // magenta
+    (Color::Black, Color::AnsiValue(208)), // orange
+    (Color::White, Color::AnsiValue(93)),  // violet
+    (Color::Black, Color::AnsiValue(51)),  // cyan
+    (Color::Black, Color::AnsiValue(220)), // gold
+    (Color::White, Color::AnsiValue(129)), // purple
+    (Color::White, Color::AnsiValue(160)), // crimson
+    (Color::Black, Color::AnsiValue(39)),  // azure
 ];
+
+/// Resolved product appearance after `theme = auto` is applied.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ResolvedTheme {
+    #[default]
+    Dark,
+    Light,
+}
+
+thread_local! {
+    static ACTIVE_THEME: std::cell::Cell<ResolvedTheme> =
+        const { std::cell::Cell::new(ResolvedTheme::Dark) };
+}
+
+/// Map config + `COLORFGBG` to a concrete TUI theme. Missing or unparsable
+/// `COLORFGBG` stays dark (SSH/Blink-safe).
+pub fn resolve_theme(choice: crate::config::ThemeChoice) -> ResolvedTheme {
+    match choice {
+        crate::config::ThemeChoice::Dark => ResolvedTheme::Dark,
+        crate::config::ThemeChoice::Light => ResolvedTheme::Light,
+        crate::config::ThemeChoice::Auto => parse_colorfgbg().unwrap_or(ResolvedTheme::Dark),
+    }
+}
+
+fn parse_colorfgbg() -> Option<ResolvedTheme> {
+    let value = std::env::var("COLORFGBG").ok()?;
+    let bg = value.rsplit(';').next()?.parse::<u8>().ok()?;
+    // xterm COLORFGBG: 0–7 are dark ANSI backgrounds, 8–15 bright/light.
+    if bg >= 8 {
+        Some(ResolvedTheme::Light)
+    } else {
+        Some(ResolvedTheme::Dark)
+    }
+}
+
+fn active_theme() -> ResolvedTheme {
+    ACTIVE_THEME.with(std::cell::Cell::get)
+}
+
+fn activate_theme(theme: ResolvedTheme) {
+    ACTIVE_THEME.with(|cell| cell.set(theme));
+}
+
+fn canvas() -> Color {
+    match active_theme() {
+        ResolvedTheme::Dark => Color::AnsiValue(16),
+        ResolvedTheme::Light => Color::AnsiValue(255),
+    }
+}
+
+fn chrome() -> Color {
+    match active_theme() {
+        ResolvedTheme::Dark => Color::AnsiValue(232),
+        ResolvedTheme::Light => Color::AnsiValue(254),
+    }
+}
+
+fn ink() -> Color {
+    match active_theme() {
+        ResolvedTheme::Dark => Color::AnsiValue(255),
+        ResolvedTheme::Light => Color::AnsiValue(16),
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct Style {
@@ -408,6 +471,7 @@ fn build_frame(
     sidebar_width: usize,
     agent_panel_height: usize,
 ) -> (Vec<Row>, Option<(u16, u16)>) {
+    activate_theme(app.resolved_theme());
     let mut rows = vec![Row::default(); layout.height];
     if layout.height == 0 || layout.width == 0 {
         return (rows, None);
@@ -421,14 +485,15 @@ fn build_frame(
     }
     let wrapped_rows = app.soft_wrap_enabled().then(|| {
         let editor = app.workspace().active();
-        VisualMetrics::new(editor_layout.content_width, app.config().tab_width, true).visible_rows(
-            &editor.document,
-            VisualAnchor {
-                line: editor.viewport.top_line,
-                char_in_line: editor.viewport.top_wrap_char,
-            },
-            editor_layout.content_height,
-        )
+        app.visual_metrics(editor_layout.content_width)
+            .visible_rows(
+                &editor.document,
+                VisualAnchor {
+                    line: editor.viewport.top_line,
+                    char_in_line: editor.viewport.top_wrap_char,
+                },
+                editor_layout.content_height,
+            )
     });
     let wrapped_rows = wrapped_rows.and_then(Result::ok);
     // Editor + project sidebar only fill the content band above the agent panel.
@@ -745,8 +810,8 @@ fn build_project_sidebar_rows(app: &App, layout: Layout, sidebar_width: usize) -
 }
 
 fn build_header(app: &App, width: usize) -> Row {
-    let base = Style::new(Color::AnsiValue(250), Color::AnsiValue(235));
-    let overflow = Style::new(Color::AnsiValue(223), Color::AnsiValue(235)).bold();
+    let base = Style::new(ink(), chrome());
+    let overflow = Style::new(Color::AnsiValue(223), chrome()).bold();
     let mut row = Row::default();
     row.push_fitted(
         " wscrpt ",
@@ -855,9 +920,9 @@ fn build_editor_rows(
         .active()
         .position(app.config().tab_width)
         .line;
-    let gutter = Style::new(Color::AnsiValue(244), Color::Reset);
-    let gutter_current = Style::new(pro_ansi_bright_yellow(), Color::AnsiValue(234)).bold();
-    let blank = Style::new(Color::AnsiValue(238), Color::Reset);
+    let gutter = Style::new(Color::AnsiValue(244), canvas());
+    let gutter_current = Style::new(pro_ansi_bright_yellow(), pro_bg_current_line()).bold();
+    let blank = Style::new(Color::AnsiValue(238), canvas());
     let visible_lines = (0..layout.content_height)
         .map(|screen_line| top_line + screen_line)
         .filter(|&line| line < line_count);
@@ -936,9 +1001,9 @@ fn build_wrapped_editor_rows(
         .active()
         .position(app.config().tab_width)
         .line;
-    let gutter = Style::new(Color::AnsiValue(244), Color::Reset);
-    let gutter_current = Style::new(pro_ansi_bright_yellow(), Color::AnsiValue(234)).bold();
-    let blank = Style::new(Color::AnsiValue(238), Color::Reset);
+    let gutter = Style::new(Color::AnsiValue(244), canvas());
+    let gutter_current = Style::new(pro_ansi_bright_yellow(), pro_bg_current_line()).bold();
+    let blank = Style::new(Color::AnsiValue(238), canvas());
     // Indexed preamble + one sequential walk over the visible logical range.
     let syntax_cache =
         syntax_spans_for_visible_lines(app, visual_rows.iter().map(|row| row.logical_line));
@@ -1081,10 +1146,16 @@ fn append_document_range(
             },
         )
     } else {
-        Style::new(pro_fg_default(), Color::Reset)
+        Style::new(pro_fg_default(), canvas())
     };
     let selected = Style::new(Color::White, Color::AnsiValue(19)); // deep blue selection
     let matched = Style::new(Color::Black, Color::AnsiValue(226)).bold(); // Pro yellow hit
+    let line_text = editor.document.slice(line_start..line_end);
+    let misspellings = if app.write_profile() == crate::write::WriteProfile::Prose {
+        crate::spell::misspelled_ranges(&line_text)
+    } else {
+        Vec::new()
+    };
     let mut syntax_index = 0;
     let mut visual_column = logical_visual_start;
     let mut char_column = range_start.saturating_sub(line_start);
@@ -1147,6 +1218,11 @@ fn append_document_range(
                 base.bg,
             )
             .underlined()
+        } else if misspellings
+            .iter()
+            .any(|range| ranges_overlap(range, &local_range))
+        {
+            lexical.underlined()
         } else {
             lexical
         };
@@ -1192,38 +1268,99 @@ fn append_document_range(
 /// IDE theme. 256-color indexes stay compatible with Blink/mosh; truecolor
 /// hosts still render these as vivid primaries.
 fn syntax_style(kind: SyntaxKind, background: Color) -> Style {
+    let light = active_theme() == ResolvedTheme::Light;
     match kind {
-        // Magenta / hot pink — control flow & declarations
-        SyntaxKind::Keyword => Style::new(pro_ansi_bright_magenta(), background).bold(),
-        // Electric cyan — types & type-ish names
-        SyntaxKind::Type => Style::new(pro_ansi_bright_cyan(), background).bold(),
-        // Neon green — string literals
-        SyntaxKind::String => Style::new(pro_ansi_bright_green(), background),
-        // Dim gray-green — comments stay secondary
-        SyntaxKind::Comment => Style::new(pro_comment(), background),
-        // Bright yellow — numbers
-        SyntaxKind::Number => Style::new(pro_ansi_bright_yellow(), background),
-        // Orange / gold — true/false/null/const-ish
-        SyntaxKind::Constant => Style::new(pro_constant(), background).bold(),
-        // Azure blue — function / method names
-        SyntaxKind::Function => Style::new(pro_ansi_bright_blue(), background).bold(),
-        // Light cyan — properties / fields
-        SyntaxKind::Property => Style::new(pro_property(), background),
-        // Bright yellow-white — headings
-        SyntaxKind::Heading => Style::new(pro_ansi_bright_yellow(), background).bold(),
+        SyntaxKind::Keyword => Style::new(
+            if light {
+                Color::AnsiValue(90)
+            } else {
+                pro_ansi_bright_magenta()
+            },
+            background,
+        )
+        .bold(),
+        SyntaxKind::Type => Style::new(
+            if light {
+                Color::AnsiValue(25)
+            } else {
+                pro_ansi_bright_cyan()
+            },
+            background,
+        )
+        .bold(),
+        SyntaxKind::String => Style::new(
+            if light {
+                Color::AnsiValue(28)
+            } else {
+                pro_ansi_bright_green()
+            },
+            background,
+        ),
+        SyntaxKind::Comment => Style::new(
+            if light {
+                Color::AnsiValue(243)
+            } else {
+                pro_comment()
+            },
+            background,
+        ),
+        SyntaxKind::Number => Style::new(
+            if light {
+                Color::AnsiValue(130)
+            } else {
+                pro_ansi_bright_yellow()
+            },
+            background,
+        ),
+        SyntaxKind::Constant => Style::new(
+            if light {
+                Color::AnsiValue(166)
+            } else {
+                pro_constant()
+            },
+            background,
+        )
+        .bold(),
+        SyntaxKind::Function => Style::new(
+            if light {
+                Color::AnsiValue(20)
+            } else {
+                pro_ansi_bright_blue()
+            },
+            background,
+        )
+        .bold(),
+        SyntaxKind::Property => Style::new(
+            if light {
+                Color::AnsiValue(30)
+            } else {
+                pro_property()
+            },
+            background,
+        ),
+        SyntaxKind::Heading => Style::new(
+            if light {
+                Color::AnsiValue(94)
+            } else {
+                pro_ansi_bright_yellow()
+            },
+            background,
+        )
+        .bold(),
     }
 }
 
 // --- Terminal Pro palette (256-color approximations of classic ANSI bright) ---
 
 fn pro_fg_default() -> Color {
-    // Near pure white — Pro text color
-    Color::AnsiValue(255)
+    ink()
 }
 
 fn pro_bg_current_line() -> Color {
-    // Slight lift off black for the active line (still Pro-dark)
-    Color::AnsiValue(234)
+    match active_theme() {
+        ResolvedTheme::Dark => Color::AnsiValue(234),
+        ResolvedTheme::Light => Color::AnsiValue(253),
+    }
 }
 
 fn pro_bg_edit_transition() -> Color {
@@ -1302,10 +1439,14 @@ fn build_status(app: &App, width: usize) -> Row {
         .lsp_summary()
         .map(|summary| format!("  {summary}"))
         .unwrap_or_default();
-    let wrap = if app.soft_wrap_enabled() {
-        "  WRAP"
-    } else {
-        ""
+    let wrap = match (
+        app.soft_wrap_enabled(),
+        app.write_profile() == crate::write::WriteProfile::Prose,
+    ) {
+        (true, true) => "  WRAP/PROSE",
+        (true, false) => "  WRAP",
+        (false, true) => "  PROSE",
+        (false, false) => "",
     };
     let right = format!(
         " Ln {}:{}  {}  UTF-8{}{}{} ",
@@ -1571,7 +1712,8 @@ fn editor_cursor(
 ) -> Option<(u16, u16)> {
     let editor = app.workspace().active();
     if let Some(rows) = wrapped_rows {
-        let point = VisualMetrics::new(layout.content_width, app.config().tab_width, true)
+        let point = app
+            .visual_metrics(layout.content_width)
             .point_for_cursor(&editor.document, editor.cursor)
             .ok()?;
         let y = rows.iter().position(|row| row.anchor == point.row)?;
@@ -1860,13 +2002,13 @@ mod tests {
         assert!(!rendered.contains("1:[untitled]"), "{rendered:?}");
         assert_eq!(header.width, 40);
         assert!(header.spans.iter().any(|span| {
-            span.text.contains("9:active.rs") && span.style.bg == Color::AnsiValue(64)
+            span.text.contains("9:active.rs") && span.style.bg == Color::AnsiValue(220)
         }));
     }
 
     #[test]
     fn header_tabs_use_a_stable_repeating_twelve_color_scale() {
-        let expected_backgrounds = [24, 25, 61, 91, 125, 124, 130, 136, 64, 29, 30, 31];
+        let expected_backgrounds = [196, 226, 21, 46, 201, 208, 93, 51, 220, 129, 160, 39];
         for (index, expected) in expected_backgrounds.into_iter().enumerate() {
             assert_eq!(
                 header_tab_style(index, false).bg,
@@ -1875,10 +2017,10 @@ mod tests {
                 index + 1
             );
         }
-        assert_eq!(header_tab_style(12, false).bg, Color::AnsiValue(24));
+        assert_eq!(header_tab_style(12, false).bg, Color::AnsiValue(196));
         assert_eq!(
             header_tab_style(0, true),
-            Style::new(Color::White, Color::AnsiValue(24)).bold()
+            Style::new(Color::White, Color::AnsiValue(196)).bold()
         );
 
         let mut app = app_with_text("");
@@ -1888,11 +2030,11 @@ mod tests {
         }
         let header = build_header(&app, 512);
         assert!(header.spans.iter().any(|span| {
-            span.text.contains("1:Untitled") && span.style.bg == Color::AnsiValue(24)
+            span.text.contains("1:Untitled") && span.style.bg == Color::AnsiValue(196)
         }));
         assert!(header.spans.iter().any(|span| {
             span.text.contains("13:buffer-13.rs")
-                && span.style.bg == Color::AnsiValue(24)
+                && span.style.bg == Color::AnsiValue(196)
                 && span.style.bold
         }));
     }

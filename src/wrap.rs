@@ -19,6 +19,18 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::text::grapheme_cell_width;
 
+/// How a visual row chooses its break when the next grapheme will not fit.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum WrapPolicy {
+    /// Break at the overflowing grapheme (code-friendly; identifiers stay intact
+    /// only if they already fit).
+    #[default]
+    Char,
+    /// Break after the last whitespace in the current visual row. A single
+    /// token wider than the column still falls back to [`WrapPolicy::Char`].
+    Word,
+}
+
 /// Conservative defaults for building a whole-document wrap map on a remote
 /// device. Callers may choose smaller limits for viewport-local maps.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -217,10 +229,18 @@ pub struct WrapMap {
     requested_width: usize,
     wrap_width: usize,
     tab_width: usize,
+    wrap_policy: WrapPolicy,
     first_logical_line: usize,
     lines: Vec<WrappedLine>,
     segments: Vec<WrapSegment>,
     cells: Vec<GraphemeCell>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct BreakMark {
+    char_end: usize,
+    column_end: usize,
+    cell: usize,
 }
 
 impl WrapMap {
@@ -245,6 +265,22 @@ impl WrapMap {
         Self::build_from_line(0, lines, width, tab_width, limits)
     }
 
+    /// [`build`] with an explicit wrap policy. Existing callers keep character
+    /// wrap via [`Self::build`].
+    pub fn build_with_policy<I, S>(
+        lines: I,
+        width: usize,
+        tab_width: usize,
+        limits: WrapLimits,
+        wrap_policy: WrapPolicy,
+    ) -> Result<Self, WrapError>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        Self::build_from_line_with_policy(0, lines, width, tab_width, limits, wrap_policy)
+    }
+
     /// Build a map for a logical-line window starting at
     /// `first_logical_line`. Visual row numbers remain local to this map and
     /// begin at zero.
@@ -259,12 +295,36 @@ impl WrapMap {
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
+        Self::build_from_line_with_policy(
+            first_logical_line,
+            lines,
+            width,
+            tab_width,
+            limits,
+            WrapPolicy::Char,
+        )
+    }
+
+    /// [`build_from_line`] with an explicit wrap policy.
+    pub fn build_from_line_with_policy<I, S>(
+        first_logical_line: usize,
+        lines: I,
+        width: usize,
+        tab_width: usize,
+        limits: WrapLimits,
+        wrap_policy: WrapPolicy,
+    ) -> Result<Self, WrapError>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
         let wrap_width = width.max(1);
         let tab_width = tab_width.max(1);
         let mut map = Self {
             requested_width: width,
             wrap_width,
             tab_width,
+            wrap_policy,
             first_logical_line,
             lines: Vec::new(),
             segments: Vec::new(),
@@ -293,6 +353,10 @@ impl WrapMap {
 
     pub fn wrap_width(&self) -> usize {
         self.wrap_width
+    }
+
+    pub fn wrap_policy(&self) -> WrapPolicy {
+        self.wrap_policy
     }
 
     pub fn tab_width(&self) -> usize {
@@ -445,6 +509,7 @@ impl WrapMap {
         let mut segment_column_start = 0usize;
         let mut line_chars = 0usize;
         let mut line_column = 0usize;
+        let mut last_break: Option<BreakMark> = None;
 
         for grapheme in text.graphemes(true) {
             if let Some(byte_offset) = grapheme.find('\n') {
@@ -490,25 +555,61 @@ impl WrapMap {
                 .ok_or(WrapError::ArithmeticOverflow { logical_line })?;
 
             if current_segment_width > 0 && prospective_segment_width > self.wrap_width {
-                self.push_segment(
-                    logical_line,
-                    first_visual_row,
-                    segment_char_start,
-                    line_chars,
-                    segment_column_start,
-                    line_column,
-                    segment_first_cell,
-                    limits,
-                )?;
-                segment_first_cell = self.cells.len();
-                segment_char_start = line_chars;
-                segment_column_start = line_column;
+                if self.wrap_policy == WrapPolicy::Word
+                    && let Some(mark) = last_break
+                    && mark.cell > segment_first_cell
+                {
+                    self.push_segment(
+                        logical_line,
+                        first_visual_row,
+                        segment_char_start,
+                        mark.char_end,
+                        segment_column_start,
+                        mark.column_end,
+                        segment_first_cell,
+                        limits,
+                    )?;
+                    segment_first_cell = mark.cell;
+                    segment_char_start = mark.char_end;
+                    segment_column_start = mark.column_end;
+                    last_break = None;
+                }
+
+                let current_segment_width = line_column
+                    .checked_sub(segment_column_start)
+                    .ok_or(WrapError::ArithmeticOverflow { logical_line })?;
+                let prospective_segment_width = current_segment_width
+                    .checked_add(cell_width)
+                    .ok_or(WrapError::ArithmeticOverflow { logical_line })?;
+                if current_segment_width > 0 && prospective_segment_width > self.wrap_width {
+                    self.push_segment(
+                        logical_line,
+                        first_visual_row,
+                        segment_char_start,
+                        line_chars,
+                        segment_column_start,
+                        line_column,
+                        segment_first_cell,
+                        limits,
+                    )?;
+                    segment_first_cell = self.cells.len();
+                    segment_char_start = line_chars;
+                    segment_column_start = line_column;
+                    last_break = None;
+                }
             }
 
             self.cells.push(GraphemeCell {
                 char_end: next_line_chars,
                 logical_column_end: next_line_column,
             });
+            if self.wrap_policy == WrapPolicy::Word && is_wrap_break(grapheme) {
+                last_break = Some(BreakMark {
+                    char_end: next_line_chars,
+                    column_end: next_line_column,
+                    cell: self.cells.len(),
+                });
+            }
             line_chars = next_line_chars;
             line_column = next_line_column;
             *total_chars = next_total_chars;
@@ -595,6 +696,10 @@ impl WrapMap {
         });
         Ok(())
     }
+}
+
+fn is_wrap_break(grapheme: &str) -> bool {
+    !grapheme.is_empty() && grapheme.chars().all(char::is_whitespace)
 }
 
 #[cfg(test)]
@@ -977,5 +1082,57 @@ mod tests {
             WrapMap::build([""], 0, 0, limits),
             Err(WrapError::TooManyLogicalLines { limit: 0 })
         );
+    }
+
+    fn word_map(lines: &[&str], width: usize) -> WrapMap {
+        WrapMap::build_with_policy(
+            lines.iter().copied(),
+            width,
+            4,
+            WrapLimits::default(),
+            WrapPolicy::Word,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn word_policy_breaks_before_an_overflowing_word() {
+        let layout = word_map(&["hello world"], 8);
+        assert_eq!(layout.wrap_policy(), WrapPolicy::Word);
+        assert_eq!(layout.segment_at(0).unwrap().char_range(), 0..6);
+        assert_eq!(layout.segment_at(1).unwrap().char_range(), 6..11);
+        assert_eq!(layout.visual_position(0, 6).unwrap().visual_row, 1);
+        assert_eq!(layout.visual_position(0, 6).unwrap().x, 0);
+        assert_eq!(layout.hit_test(1, 0).unwrap().char_offset, 6);
+    }
+
+    #[test]
+    fn word_policy_falls_back_to_char_wrap_for_an_unbroken_token() {
+        let layout = word_map(&["supercalifragilistic"], 8);
+        assert_eq!(layout.segment_at(0).unwrap().char_range(), 0..8);
+        assert_eq!(layout.segment_at(1).unwrap().char_range(), 8..16);
+        assert_eq!(layout.segment_at(2).unwrap().char_range(), 16..20);
+    }
+
+    #[test]
+    fn word_policy_does_not_split_a_short_phrase() {
+        let layout = word_map(&["hello world"], 16);
+        assert_eq!(layout.segment_at(0).unwrap().char_range(), 0..11);
+        assert_eq!(layout.visual_row_count(), 1);
+    }
+
+    #[test]
+    fn word_policy_keeps_emoji_graphemes_intact() {
+        let emoji = "👩‍💻";
+        let text = format!("hi {emoji} there");
+        let layout = word_map(&[&text], 6);
+        assert!(layout.segments_for_line(0).unwrap().iter().any(|segment| {
+            let slice: String = text
+                .chars()
+                .skip(segment.char_start)
+                .take(segment.char_end - segment.char_start)
+                .collect();
+            slice.contains(emoji)
+        }));
     }
 }

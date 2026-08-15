@@ -266,7 +266,7 @@ SSH identity. A `direct-tcpip` probe to the host's numeric-loopback SSH port
 returned its OpenSSH 9.6 banner, which establishes that the server currently
 permits the forwarding mechanism used by the player. It does **not** establish
 NIOSSH authentication from the iPad. The route is not yet runnable: remote
-`wscrpt`, `previewctl`, the expected BIRDWORLD workspace path, and authorization
+`wscrpt`, `previewctl`, the expected example workspace path, and authorization
 of the iPad's generated public key are absent. The earlier Phase 0 preflight
 also found no selected browser and found that non-login SSH commands did not
 inherit the user Node toolchain path. Install and recheck every prerequisite

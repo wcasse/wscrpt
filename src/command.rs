@@ -62,6 +62,9 @@ pub enum ExCommand {
     AgentChecklist,
     AgentApplyChecklist,
     AgentApplyReceipt,
+    SetWriteProfile(Option<super::write::WriteProfile>),
+    HardWrap,
+    SetTheme(Option<super::config::ThemeChoice>),
 }
 
 pub fn parse(input: &str) -> Result<ExCommand, String> {
@@ -224,6 +227,19 @@ pub fn parse(input: &str) -> Result<ExCommand, String> {
         "apply-receipt" | "agent-apply-receipt" | "sticky-log" | "receipt-to-sticky" => {
             no_argument(argument, ExCommand::AgentApplyReceipt)
         }
+        "mode" | "write-mode" | "profile" if argument.is_empty() => {
+            Ok(ExCommand::SetWriteProfile(None))
+        }
+        "mode" | "write-mode" | "profile" => super::write::WriteProfile::parse(argument)
+            .map(Some)
+            .map(ExCommand::SetWriteProfile)
+            .ok_or_else(|| "mode needs prose or code".to_owned()),
+        "hard-wrap" | "fill" | "reflow" => no_argument(argument, ExCommand::HardWrap),
+        "theme" if argument.is_empty() => Ok(ExCommand::SetTheme(None)),
+        "theme" => super::config::ThemeChoice::parse(argument)
+            .map(Some)
+            .map(ExCommand::SetTheme)
+            .ok_or_else(|| "theme needs dark, light, or auto".to_owned()),
         _ => Err(format!("unknown command: {name}")),
     }
 }
@@ -269,6 +285,16 @@ mod tests {
         assert_eq!(
             parse("undo-close now"),
             Err("this command does not take an argument".to_owned())
+        );
+        assert_eq!(
+            parse("mode prose").unwrap(),
+            ExCommand::SetWriteProfile(Some(crate::write::WriteProfile::Prose))
+        );
+        assert_eq!(parse("mode").unwrap(), ExCommand::SetWriteProfile(None));
+        assert_eq!(parse("hard-wrap").unwrap(), ExCommand::HardWrap);
+        assert_eq!(
+            parse("theme light").unwrap(),
+            ExCommand::SetTheme(Some(crate::config::ThemeChoice::Light))
         );
         assert_eq!(parse("q!").unwrap(), ExCommand::Quit { force: true });
         assert_eq!(parse("new-file").unwrap(), ExCommand::NewFile(None));

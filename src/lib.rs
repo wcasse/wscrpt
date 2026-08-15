@@ -25,6 +25,7 @@ pub mod render;
 pub mod search;
 mod services;
 pub mod session;
+pub mod spell;
 pub mod stickies;
 pub mod syntax;
 pub mod task_output;
@@ -35,6 +36,7 @@ pub mod text;
 pub mod visual;
 pub mod workspace;
 pub mod wrap;
+pub mod write;
 
 pub use document::{Document, DocumentError, EditKind, LineEnding};
 pub use editor::{CursorPosition, Editor, LineCommentToggle, LineCommentToggleOutcome, Viewport};

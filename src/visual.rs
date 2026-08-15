@@ -8,7 +8,7 @@
 use std::ops::Range;
 
 use crate::Document;
-use crate::wrap::{WrapError, WrapLimits, WrapMap, WrapSegment};
+use crate::wrap::{WrapError, WrapLimits, WrapMap, WrapPolicy, WrapSegment};
 
 /// Display geometry used to map logical text onto terminal rows.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -17,6 +17,7 @@ pub struct VisualMetrics {
     pub content_width: usize,
     pub tab_width: usize,
     pub soft_wrap: bool,
+    pub wrap_policy: WrapPolicy,
     /// Explicit safety limits applied to every per-logical-line map and to a
     /// requested visible-row result.
     pub limits: WrapLimits,
@@ -28,12 +29,18 @@ impl VisualMetrics {
             content_width,
             tab_width,
             soft_wrap,
+            wrap_policy: WrapPolicy::Char,
             limits: WrapLimits::default(),
         }
     }
 
     pub const fn with_limits(mut self, limits: WrapLimits) -> Self {
         self.limits = limits;
+        self
+    }
+
+    pub const fn with_wrap_policy(mut self, wrap_policy: WrapPolicy) -> Self {
+        self.wrap_policy = wrap_policy;
         self
     }
 
@@ -322,7 +329,14 @@ impl VisualMetrics {
         } else {
             usize::MAX
         };
-        let map = WrapMap::build_from_line(line, [text], width, self.tab_width, self.limits)?;
+        let map = WrapMap::build_from_line_with_policy(
+            line,
+            [text],
+            width,
+            self.tab_width,
+            self.limits,
+            self.wrap_policy,
+        )?;
         Ok((line_start, map))
     }
 
